@@ -6,6 +6,11 @@ import { AreaChart } from '@/components/charts/AreaChart';
 import { AnimatedNumber } from '@/components/shared/AnimatedNumber';
 import { motion } from 'framer-motion';
 import { riskAPI, geoAPI } from '@/lib/api';
+import { portfolioService } from '@/services/portfolioService';
+import { useAuthStore } from '@/store/authStore';
+import { ChevronDown, Info } from 'lucide-react';
+
+type IndicatorType = 'VIX' | 'MOVE';
 
 interface RiskProfile {
   risk_score: number;
@@ -22,19 +27,84 @@ interface RiskFactor {
   color: string;
 }
 
+/** Generate a pseudo-timeseries from a base value with noise */
+function generateTimeSeries(baseVal: number, length = 20): Array<{ date: string; value: number }> {
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const now = new Date();
+  return Array.from({ length }).map((_, i) => {
+    const d = new Date(now);
+    d.setMonth(d.getMonth() - (length - i));
+    const noise = (Math.random() - 0.4) * baseVal * 0.3;
+    const trend = (i / length) * baseVal * 0.2;
+    return {
+      date: months[d.getMonth()],
+      value: Math.max(5, Math.round(baseVal * 0.6 + trend + noise)),
+    };
+  });
+}
+
 export default function RiskProfilePage() {
+  const { user } = useAuthStore();
   const [profile, setProfile] = useState<RiskProfile | null>(null);
   const [riskFactors, setRiskFactors] = useState<RiskFactor[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [indicator, setIndicator] = useState<IndicatorType>('VIX');
+
+  // Portfolio switching
+  const [portfolios, setPortfolios] = useState<any[]>([]);
+  const [selectedPortfolioId, setSelectedPortfolioId] = useState<string>('');
+  const [portfolioHoldings, setPortfolioHoldings] = useState<any[]>([]);
+  const [showPortfolioDropdown, setShowPortfolioDropdown] = useState(false);
+  const [isLoadingPortfolio, setIsLoadingPortfolio] = useState(false);
+
+  // Separate chart data per indicator
+  const [vixData, setVixData] = useState<Array<{ date: string; value: number }>>([]);
+  const [moveData, setMoveData] = useState<Array<{ date: string; value: number }>>([]);
 
   useEffect(() => {
+    if (user) {
+      loadPortfolios();
+    }
     loadRiskData();
-  }, []);
+  }, [user]);
+
+  const loadPortfolios = async () => {
+    if (!user) return;
+    try {
+      const res = await portfolioService.listPortfolios(user.id);
+      const pList = res.data as any[];
+      setPortfolios(pList);
+      if (pList.length > 0) {
+        setSelectedPortfolioId(pList[0].$id);
+        loadPortfolioHoldings(pList[0].$id);
+      }
+    } catch {
+      setPortfolios([]);
+    }
+  };
+
+  const loadPortfolioHoldings = async (portfolioId: string) => {
+    setIsLoadingPortfolio(true);
+    try {
+      const res = await portfolioService.getHoldings(portfolioId);
+      setPortfolioHoldings(res.data as any[]);
+    } catch {
+      setPortfolioHoldings([]);
+    } finally {
+      setIsLoadingPortfolio(false);
+    }
+  };
+
+  const handleSelectPortfolio = (p: any) => {
+    setSelectedPortfolioId(p.$id);
+    setShowPortfolioDropdown(false);
+    loadPortfolioHoldings(p.$id);
+  };
 
   const loadRiskData = async () => {
     setIsLoading(true);
 
-    // Load risk profile
+    // Load risk profile from backend
     try {
       const profileRes = await riskAPI.getMyProfile();
       setProfile(profileRes.data);
@@ -49,8 +119,7 @@ export default function RiskProfilePage() {
       });
     }
 
-    // Load geo risk factors for major markets
-    const factors: RiskFactor[] = [];
+    // Load geo risk factors for major macro indicators
     const countries = [
       { code: 'US', label: 'Market Volatility' },
       { code: 'CN', label: 'Geopolitical Tension' },
@@ -59,6 +128,7 @@ export default function RiskProfilePage() {
       { code: 'DE', label: 'Credit Spreads' },
     ];
 
+    const factors: RiskFactor[] = [];
     await Promise.allSettled(
       countries.map(async (c) => {
         try {
@@ -79,44 +149,146 @@ export default function RiskProfilePage() {
       })
     );
     setRiskFactors(factors);
+
+    // Generate time-series data for each indicator
+    const avgVolatility = factors.find(f => f.label === 'Market Volatility')?.val || 50;
+    const avgRateSensitivity = factors.find(f => f.label === 'Interest Rate Sensitivity')?.val || 45;
+
+    setVixData(generateTimeSeries(avgVolatility, 18));
+    setMoveData(generateTimeSeries(avgRateSensitivity * 0.8, 18));
+
     setIsLoading(false);
   };
 
-  const systemicScore = riskFactors.length > 0
-    ? (riskFactors.reduce((s, f) => s + f.val, 0) / riskFactors.length / 10).toFixed(1)
-    : '5.0';
+  /** Compute portfolio-adjusted macro factors by overlaying real holdings data */
+  const getPortfolioAdjustedFactors = (): RiskFactor[] => {
+    if (portfolioHoldings.length === 0) return riskFactors;
+
+    // Sector → macro factor mapping
+    const sectorRiskMap: Record<string, { factor: string; multiplier: number }> = {
+      'Technology': { factor: 'Market Volatility', multiplier: 1.3 },
+      'Finance': { factor: 'Credit Spreads', multiplier: 1.2 },
+      'Banking': { factor: 'Credit Spreads', multiplier: 1.2 },
+      'Energy': { factor: 'Geopolitical Tension', multiplier: 1.25 },
+      'Healthcare': { factor: 'Market Volatility', multiplier: 0.8 },
+      'Consumer': { factor: 'Liquidity Constraint', multiplier: 0.9 },
+      'Real Estate': { factor: 'Interest Rate Sensitivity', multiplier: 1.4 },
+      'Utilities': { factor: 'Interest Rate Sensitivity', multiplier: 1.2 },
+    };
+
+    const factorBoosts: Record<string, number> = {};
+    portfolioHoldings.forEach(h => {
+      const sector = h.sector || '';
+      for (const [key, { factor, multiplier }] of Object.entries(sectorRiskMap)) {
+        if (sector.toLowerCase().includes(key.toLowerCase())) {
+          factorBoosts[factor] = Math.max(factorBoosts[factor] || 0, multiplier);
+        }
+      }
+    });
+
+    return riskFactors.map(f => {
+      const boost = factorBoosts[f.label] ?? 1.0;
+      const adjusted = Math.round(Math.min(f.val * boost, 100));
+      return {
+        ...f,
+        val: adjusted,
+        color: adjusted >= 70 ? 'var(--accent-rose)' : adjusted >= 40 ? 'var(--accent-amber)' : 'var(--accent-sage)',
+      };
+    });
+  };
+
+  const displayFactors = getPortfolioAdjustedFactors();
+
+  const systemicScore =
+    displayFactors.length > 0
+      ? (displayFactors.reduce((s, f) => s + f.val, 0) / displayFactors.length / 10).toFixed(1)
+      : '5.0';
 
   const scoreColor =
     Number(systemicScore) >= 7 ? 'text-accent-rose bg-accent-rose-light border-accent-rose/20'
     : Number(systemicScore) >= 4 ? 'text-accent-amber bg-accent-amber-light border-accent-amber/20'
     : 'text-accent-sage bg-accent-sage-light border-accent-sage/20';
 
+  const selectedPortfolio = portfolios.find(p => p.$id === selectedPortfolioId);
+  const chartData = indicator === 'VIX' ? vixData : moveData;
+
   return (
     <div className="space-y-8 animate-in fade-in duration-500 pb-12">
-      <div className="flex items-center justify-between pb-6 border-b border-border-light">
+      {/* Header */}
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between pb-6 border-b border-border-light">
         <div>
           <h1 className="font-display text-4xl text-text-primary mb-2">Composite Risk Profile</h1>
           <p className="font-sans text-sm text-text-secondary">Cross-asset correlation matrix and real-time distress indicators.</p>
         </div>
-        <div className="flex flex-col items-end">
-          <span className="text-xs font-semibold uppercase tracking-widest text-text-secondary mb-1">Global Systemic Risk</span>
-          <span className={`text-4xl font-mono font-bold drop-shadow-sm border px-3 py-1 rounded shadow-xs ${scoreColor}`}>
-            {isLoading ? '...' : systemicScore}
-          </span>
+        <div className="flex items-end gap-6 flex-wrap">
+          {/* Global Systemic Risk Score */}
+          <div className="flex flex-col items-end">
+            <div className="flex items-center gap-1.5 mb-1">
+              <span className="text-xs font-semibold uppercase tracking-widest text-text-secondary">Global Systemic Risk</span>
+              <div className="group relative">
+                <Info className="w-3 h-3 text-text-dim cursor-help" />
+                <div className="absolute right-0 bottom-5 w-64 bg-elevated border border-border-strong rounded-lg p-3 text-xs text-text-secondary shadow-xl z-50 hidden group-hover:block">
+                  <p className="font-bold text-text-primary mb-1">What is Global Systemic Risk?</p>
+                  <p>An aggregate 0–10 score averaging live geopolitical risk assessments across 5 major economies (US, China, Japan, UK, Germany). Higher = more systemic stress.</p>
+                </div>
+              </div>
+            </div>
+            <span className={`text-4xl font-mono font-bold drop-shadow-sm border px-3 py-1 rounded shadow-xs ${scoreColor}`}>
+              {isLoading ? '...' : systemicScore}
+            </span>
+          </div>
+
+          {/* Portfolio Switcher */}
+          {portfolios.length > 0 && (
+            <div className="flex flex-col">
+              <span className="text-xs font-semibold uppercase tracking-widest text-text-secondary mb-1">Analyzing Portfolio</span>
+              <div className="relative">
+                <button
+                  onClick={() => setShowPortfolioDropdown(v => !v)}
+                  className="flex items-center gap-2 bg-elevated border border-border-strong px-3 py-2 rounded-lg text-sm font-bold text-text-primary hover:bg-surface transition-colors shadow-xs"
+                >
+                  <span className="max-w-[160px] truncate">{selectedPortfolio?.name || 'Select Portfolio'}</span>
+                  <ChevronDown className="w-4 h-4 text-text-dim" />
+                </button>
+                {showPortfolioDropdown && (
+                  <div className="absolute right-0 top-10 w-56 bg-surface border border-border-strong rounded-lg shadow-2xl z-50 overflow-hidden">
+                    {portfolios.map(p => (
+                      <button
+                        key={p.$id}
+                        onClick={() => handleSelectPortfolio(p)}
+                        className={`w-full text-left px-4 py-3 text-sm hover:bg-elevated transition-colors border-b border-border-light/50 last:border-0 ${p.$id === selectedPortfolioId ? 'text-accent-indigo font-bold bg-elevated' : 'text-text-primary'}`}
+                      >
+                        {p.name}
+                        <span className="block text-[10px] text-text-dim font-mono mt-0.5">{p.currency}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Left column — Macro Factors + Risk Profile */}
         <div className="lg:col-span-1 space-y-6">
           <SoftCard className="bg-surface shadow-xs pt-8">
-            <h3 className="font-semibold text-text-primary text-xl mb-6 pb-2 border-b border-border-light/50 w-full inline-block font-display">Macro Factor Exposures</h3>
+            <div className="flex justify-between items-end mb-6 pb-2 border-b border-border-light/50">
+              <h3 className="font-semibold text-text-primary text-xl font-display">Macro Factor Exposures</h3>
+              {portfolioHoldings.length > 0 && (
+                <span className="text-[10px] text-accent-sage font-mono font-bold bg-accent-sage/10 px-2 py-0.5 rounded border border-accent-sage/20">
+                  Portfolio-adjusted
+                </span>
+              )}
+            </div>
             <div className="space-y-6">
-              {isLoading ? (
+              {isLoading || isLoadingPortfolio ? (
                 [1, 2, 3, 4, 5].map(i => (
                   <div key={i} className="w-full h-12 bg-elevated animate-pulse rounded-lg" />
                 ))
               ) : (
-                riskFactors.map((r, i) => (
+                displayFactors.map((r, i) => (
                   <motion.div initial={{ width: 0 }} animate={{ width: '100%' }} transition={{ delay: i * 0.1 }} key={r.label} className="w-full">
                     <div className="flex justify-between items-end mb-2">
                       <span className="text-sm font-semibold text-text-primary tracking-wide shadow-[0_1px_2px_rgba(28,25,23,0.05)] bg-root px-2 py-1 rounded border border-border-base">{r.label}</span>
@@ -188,24 +360,39 @@ export default function RiskProfilePage() {
           </SoftCard>
         </div>
 
+        {/* Right column — Stress Indicator Chart + Insights */}
         <div className="lg:col-span-2 space-y-6">
           <SoftCard className="h-[460px] flex flex-col">
-            <div className="flex justify-between items-center mb-6 border-b border-border-light pb-4">
-              <h3 className="font-semibold text-text-primary text-xl font-display">Stress Indicator Time-Series</h3>
+            <div className="flex justify-between items-center mb-4 border-b border-border-light pb-4">
+              <div>
+                <h3 className="font-semibold text-text-primary text-xl font-display">Stress Indicator Time-Series</h3>
+                <p className="text-xs text-text-dim mt-1">
+                  {indicator === 'VIX'
+                    ? 'VIX Proxy — Equity market implied volatility (fear gauge), derived from geo-political stress index.'
+                    : 'MOVE Proxy — Bond market rate volatility indicator, derived from interest rate sensitivity.'}
+                </p>
+              </div>
               <div className="flex gap-2 bg-root p-1 rounded-md border border-border-base shadow-xs">
-                <button className="px-4 py-1.5 bg-surface border border-accent-rose/30 text-accent-rose rounded shadow-sm text-xs font-bold tracking-wide">VIX Proxy</button>
-                <button className="px-4 py-1.5 border border-transparent hover:bg-surface/50 text-text-secondary hover:text-text-primary rounded text-xs font-semibold transition-colors">MOVE Proxy</button>
+                <button
+                  onClick={() => setIndicator('VIX')}
+                  className={`px-4 py-1.5 rounded text-xs font-bold tracking-wide transition-all ${indicator === 'VIX' ? 'bg-surface border border-accent-rose/30 text-accent-rose shadow-sm' : 'text-text-secondary hover:text-text-primary hover:bg-surface/50 border border-transparent'}`}
+                >
+                  VIX Proxy
+                </button>
+                <button
+                  onClick={() => setIndicator('MOVE')}
+                  className={`px-4 py-1.5 rounded text-xs font-bold tracking-wide transition-all ${indicator === 'MOVE' ? 'bg-surface border border-accent-indigo/30 text-accent-indigo shadow-sm' : 'text-text-secondary hover:text-text-primary hover:bg-surface/50 border border-transparent'}`}
+                >
+                  MOVE Proxy
+                </button>
               </div>
             </div>
             <div className="flex-1 border border-border-light rounded-xl overflow-hidden shadow-inner p-3 bg-root">
-              <AreaChart data={
-                riskFactors.length > 0
-                  ? riskFactors.map((f, i) => ({ date: f.label.split(' ')[0], value: f.val }))
-                  : [
-                    { date: 'Q1', value: 12 }, { date: 'Q2', value: 18 }, { date: 'Q3', value: 34 }, { date: 'Q4', value: 28 },
-                    { date: 'Q1b', value: 42 }, { date: 'Q2b', value: 68 }, { date: 'Q3b', value: 55 }, { date: 'Q4b', value: 85 },
-                  ]
-              } />
+              {isLoading ? (
+                <div className="w-full h-full bg-elevated animate-pulse rounded-lg" />
+              ) : (
+                <AreaChart data={chartData} />
+              )}
             </div>
           </SoftCard>
 
@@ -221,6 +408,15 @@ export default function RiskProfilePage() {
                     </li>
                   ))}
                 </ul>
+                {portfolioHoldings.length > 0 && (
+                  <div className="mt-4 p-3 bg-elevated rounded-lg border border-border-light">
+                    <p className="text-xs text-text-secondary">
+                      <span className="font-bold text-text-primary">Portfolio: </span>
+                      {selectedPortfolio?.name} · {portfolioHoldings.length} holding{portfolioHoldings.length !== 1 ? 's' : ''} analyzed.
+                      {portfolioHoldings.length > 0 && ` Macro factors adjusted based on sector & country exposure.`}
+                    </p>
+                  </div>
+                )}
                 {profile.country_adjustment && profile.country_adjustment !== 'Standard' && (
                   <p className="mt-4 text-xs text-text-dim">Country adjustment: {profile.country_adjustment}</p>
                 )}

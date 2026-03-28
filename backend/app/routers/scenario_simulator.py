@@ -36,7 +36,7 @@ def run_scenario(body: dict, db: Session = Depends(get_db)):
     try:
         pid = int(portfolio_id)
     except (ValueError, TypeError):
-        raise HTTPException(status_code=400, detail="Invalid portfolio_id")
+        raise HTTPException(status_code=400, detail="Invalid portfolio_id — use /simulate/holdings for Appwrite portfolios")
 
     # Support both array scenarios and single scenario_name
     scenarios = body.get("scenarios", [])
@@ -72,6 +72,59 @@ def run_scenario(body: dict, db: Session = Depends(get_db)):
     if len(results) == 1:
         return results[0]
     return {"scenarios": results}
+
+
+@router.post("/simulate/holdings")
+def run_scenario_direct(body: dict):
+    """
+    Direct scenario simulation using raw Appwrite holdings (no Python DB needed).
+    
+    Accepts: {
+        "holdings": [{ "ticker", "quantity", "avg_cost", "sector", "country" }],
+        "scenarios": [{ "name": "oil_shock", "params": { "severity_multiplier": 1 } }]
+    }
+    """
+    raw_holdings = body.get("holdings", [])
+    if not raw_holdings:
+        raise HTTPException(status_code=400, detail="No holdings provided")
+
+    scenarios = body.get("scenarios", [{"name": "recession", "params": {}}])
+
+    holdings_data = []
+    for h in raw_holdings:
+        ticker = h.get("ticker", "")
+        quantity = float(h.get("quantity", 0))
+        avg_cost = float(h.get("avg_cost", 0))
+        price = get_stock_price(ticker) or avg_cost
+        holdings_data.append({
+            "ticker": ticker,
+            "sector": h.get("sector", "Unknown"),
+            "country": h.get("country", "US"),
+            "quantity": quantity,
+            "avg_cost": avg_cost,
+            "current_price": price,
+            "portfolio_id": h.get("portfolio_id", ""),
+        })
+
+    results = []
+    for sc in scenarios:
+        sc_name = sc.get("name", "recession")
+        sc_params = sc.get("params", {})
+        # Apply severity multiplier if provided
+        severity = sc_params.get("severity_multiplier", 1)
+        result = simulate_scenario(holdings_data, sc_name, sc_params)
+        # Scale total impact by severity (beyond 1x)
+        if severity != 1:
+            result["total_impact_pct"] = round(result["total_impact_pct"] * severity, 2)
+            result["scenario_portfolio_value"] = round(
+                result["current_portfolio_value"] * (1 + result["total_impact_pct"] / 100), 2
+            )
+        results.append(result)
+
+    if len(results) == 1:
+        return results[0]
+    return {"scenarios": results}
+
 
 
 @router.post("/portfolio/{portfolio_id}/optimize")

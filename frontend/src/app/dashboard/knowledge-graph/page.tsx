@@ -1,33 +1,88 @@
 "use client";
 
-import { useEffect, useState } from 'react';
-import { SoftCard } from '@/components/shared/SoftCard';
-import { motion, AnimatePresence } from 'framer-motion';
-import { graphAPI, portfolioAPI } from '@/lib/api';
+import { useEffect, useState, useRef } from 'react';
+import dynamic from 'next/dynamic';
+import { graphAPI } from '@/lib/api';
+
+// Dynamically import the 3D graph (No SSR because it uses window)
+const ForceGraph3D = dynamic(() => import('react-force-graph-3d'), { ssr: false });
 
 export default function KnowledgeGraphPage() {
   const [nodes, setNodes] = useState<any[]>([]);
-  const [edges, setEdges] = useState<any[]>([]);
-  const [selectedNode, setSelectedNode] = useState<any>(null);
+  const [links, setLinks] = useState<any[]>([]);
   const [centerNodeId, setCenterNodeId] = useState<string>('AAPL');
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string>('');
+  
+  const [hoverNode, setHoverNode] = useState<any>(null);
+  const [selectedNode, setSelectedNode] = useState<any>(null);
+  
+  const [highlightNodes, setHighlightNodes] = useState(new Set());
+  const [highlightLinks, setHighlightLinks] = useState(new Set());
+
+  const fgRef = useRef<any>();
+
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const observer = new ResizeObserver(entries => {
+      for (let entry of entries) {
+        setDimensions({
+          width: entry.contentRect.width,
+          height: entry.contentRect.height
+        });
+      }
+    });
+    observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     loadGraph();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [centerNodeId]);
+
+  useEffect(() => {
+    if (fgRef.current && nodes.length > 0) {
+      fgRef.current.d3Force('charge').strength(-300); // Stronger repel to separate nicely
+      fgRef.current.d3Force('link').distance(150);
+    }
+  }, [nodes]);
 
   const loadGraph = async () => {
     setIsLoading(true);
     setError('');
     try {
       const res = await graphAPI.query(centerNodeId, 2);
-      setNodes(res.data.nodes || []);
-      setEdges(res.data.edges || []);
       
-      const center = res.data.nodes.find((n: any) => n.id === centerNodeId);
-      if (center) setSelectedNode(center);
+      const newNodes = res.data.nodes || [];
+      const newLinks = res.data.links || [];
+
+      // Link source/target objects directly for React-Force-Graph processing
+      newLinks.forEach((link: any) => {
+        link.source = link.source;
+        link.target = link.target;
+      });
+
+      // Pin the center node precisely at the 3D origin (0, 0, 0)
+      // This guarantees the graph builds outward from the absolute center and never drifts
+      const root = newNodes.find((n: any) => n.id === centerNodeId);
+      if (root) {
+        root.fx = 0;
+        root.fy = 0;
+        root.fz = 0;
+      }
+
+      setNodes(newNodes);
+      setLinks(newLinks);
+
+      // Reset highlights when data changes
+      setHighlightNodes(new Set());
+      setHighlightLinks(new Set());
+      setHoverNode(null);
+      setSelectedNode(root || null);
+
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Failed to load knowledge graph data.');
     } finally {
@@ -35,159 +90,267 @@ export default function KnowledgeGraphPage() {
     }
   };
 
-  // Basic circular layout math
-  const getLayout = (index: number, total: number, isCenter: boolean) => {
-    if (isCenter) return { top: '50%', left: '50%' };
-    const radius = 35; // % from center
-    const angle = (index / (total - 1)) * 2 * Math.PI;
-    return {
-      top: `${50 + radius * Math.sin(angle)}%`,
-      left: `${50 + radius * Math.cos(angle)}%`
-    };
-  };
+  const updateHighlight = (node: any) => {
+    if (node) {
+      const hNodes = new Set<string>();
+      const hLinks = new Set<any>();
+      
+      hNodes.add(node.id);
+      
+      links.forEach(link => {
+        const sId = typeof link.source === 'object' ? link.source.id : link.source;
+        const tId = typeof link.target === 'object' ? link.target.id : link.target;
+        
+        if (sId === node.id || tId === node.id) {
+          hLinks.add(link);
+          hNodes.add(sId === node.id ? tId : sId);
+        }
+      });
 
-  const getStyleForType = (type: string) => {
-    switch(type) {
-      case 'company': return 'border-accent-indigo text-accent-indigo bg-accent-indigo-light/10 shadow-[0_0_20px_rgba(67,56,202,0.15)]';
-      case 'sector': return 'border-text-primary text-text-primary bg-surface shadow-[0_0_15px_rgba(0,0,0,0.05)]';
-      case 'country': return 'border-accent-rose text-accent-rose bg-accent-rose-light/10 shadow-[0_0_20px_rgba(190,18,60,0.15)]';
-      default: return 'border-border-strong text-text-secondary bg-surface shadow-md';
+      setHighlightNodes(hNodes);
+      setHighlightLinks(hLinks);
+    } else {
+      setHighlightNodes(new Set());
+      setHighlightLinks(new Set());
     }
   };
 
-  const centerNode = nodes.find(n => n.id === centerNodeId);
-  const otherNodes = nodes.filter(n => n.id !== centerNodeId).slice(0, 8); // Display max 8 surrounding nodes to keep UI clean
+  const handleNodeHover = (node: any) => {
+    setHoverNode(node);
+    if (node) {
+        updateHighlight(node);
+    } else if (selectedNode) {
+        updateHighlight(selectedNode);
+    } else {
+        updateHighlight(null);
+    }
+  };
 
-  const displayNodes = centerNode ? [centerNode, ...otherNodes] : otherNodes;
+  const handleNodeClick = (node: any) => {
+    if (selectedNode?.id === node.id) {
+        setCenterNodeId(node.id);
+    } else {
+        setSelectedNode(node);
+        updateHighlight(node);
+    }
+  };
+
+  const getStyleForType = (node: any) => {
+    const isHighlighted = highlightNodes.size === 0 || highlightNodes.has(node.id);
+    
+    // Dim out non-connected nodes strongly
+    if (!isHighlighted) return 'rgba(30, 41, 59, 0.4)'; // Dark Slate with transparency
+    
+    const colors: Record<string, string> = {
+      'country': '#F43F5E', // Rose 500
+      'company': '#3B82F6', // Blue 500
+      'stock': '#3B82F6',   // Blue 500
+      'sector': '#10B981',  // Emerald 500
+    };
+    
+    return colors[node.type] || '#A855F7'; // Default Purple 500
+  };
+  
+  // The active node to display in the side panel
+  const activeDisplayedNode = hoverNode || selectedNode;
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-500 w-full h-full flex flex-col min-h-[800px]">
-      <div className="flex items-center justify-between pb-6 border-b border-border-light flex-shrink-0">
-         <div>
-           <h1 className="font-display text-4xl text-text-primary mb-2">Knowledge Graph</h1>
-           <p className="font-sans text-sm text-text-secondary">Explore n-tier relationships connected back to the central entity.</p>
-         </div>
-         <div className="flex bg-surface p-1.5 pl-5 rounded-full border border-border-base shadow-sm items-center gap-5">
-            <span className="text-xs font-semibold text-text-secondary uppercase tracking-widest outline-none border-none">Center Node</span>
-            <div className="flex gap-2 font-mono">
+    <div className="w-full h-[calc(100vh-100px)] flex flex-row rounded-3xl overflow-hidden border border-border-strong shadow-2xl bg-[#020617]">
+      
+      {/* LEFT SIDEBAR: Info Panel & Search */}
+      <div className="w-[380px] h-full bg-[#0B0E14] border-r border-[#1E293B] flex flex-col z-10 custom-scrollbar flex-shrink-0">
+        
+        {/* Header Area */}
+        <div className="p-8 pb-6 border-b border-[#1E293B]">
+           <div className="flex items-center gap-3 mb-2">
+             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg">
+                <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
+             </div>
+             <h1 className="font-display text-2xl text-white tracking-tight">AI Knowledge</h1>
+           </div>
+           
+           <p className="font-sans text-xs text-slate-400 mb-6 leading-relaxed">
+             Multi-dimensional interactive logic propagation identifying hidden macro-level exposure vectors.
+           </p>
+
+           {/* Search Input */}
+           <div className="flex bg-[#0F172A] rounded-xl border border-[#334155] p-1.5 focus-within:border-indigo-500 transition-colors shadow-inner">
               <input 
                 type="text" 
                 value={centerNodeId}
                 onChange={(e) => setCenterNodeId(e.target.value.toUpperCase())}
-                placeholder="Ticker/Risk" 
-                className="w-24 text-sm px-3 py-1.5 uppercase font-bold text-center border bg-root border-border-strong rounded-full focus:outline-accent-indigo text-text-primary outline-none" 
+                placeholder="Target entity..." 
+                className="w-full bg-transparent px-3 py-2 text-sm text-white focus:outline-none uppercase font-mono tracking-wider" 
+                onKeyDown={(e) => e.key === 'Enter' && loadGraph()}
               />
-              <button onClick={loadGraph} className="px-4 py-1.5 bg-accent-indigo hover:bg-accent-indigo-mid text-white rounded-full text-xs font-bold font-sans transition-colors">Search</button>
+              <button 
+                onClick={loadGraph} 
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-bold font-sans transition-colors"
+                disabled={isLoading}
+              >
+                {isLoading ? 'Querying...' : 'Trace'}
+              </button>
+           </div>
+        </div>
+
+        {/* Dynamic Detail Panel */}
+        <div className="flex-1 overflow-y-auto p-8 relative">
+          
+          {error ? (
+              <div className="text-rose-400 bg-rose-500/10 p-4 rounded-xl border border-rose-500/20">
+                 <p className="font-bold text-sm mb-1 uppercase tracking-widest">Query Failed</p>
+                 <p className="text-xs">{error}</p>
+              </div>
+          ) : activeDisplayedNode ? (
+            <div className="animate-in fade-in slide-in-from-bottom-4 duration-300">
+               {/* Concept Badge */}
+               <div className="flex gap-2 items-center mb-4">
+                  <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: getStyleForType(activeDisplayedNode) }}></span>
+                  <span className="text-[10px] text-slate-400 uppercase tracking-[0.2em] font-bold">
+                    {activeDisplayedNode.type}
+                  </span>
+               </div>
+               
+               {/* Title */}
+               <h2 className="font-display text-4xl text-white mb-6 leading-none tracking-tight break-words">
+                 {activeDisplayedNode.label || activeDisplayedNode.id}
+               </h2>
+               
+               {/* Description */}
+               <p className="text-sm text-slate-300 leading-relaxed mb-8">
+                 {activeDisplayedNode.properties?.description 
+                    || `The entity ${activeDisplayedNode.id} serves as a structural nexus in the graph, linking dependent metrics across regional and sectoral borders.`}
+               </p>
+               
+               {/* Metadata List */}
+               {activeDisplayedNode.properties && Object.keys(activeDisplayedNode.properties).length > 0 && (
+                  <div className="bg-[#0F172A]/50 border border-[#1E293B] rounded-2xl p-5 mb-8">
+                     <h3 className="text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-4">Metadata Analysis</h3>
+                     <div className="space-y-3">
+                        {Object.entries(activeDisplayedNode.properties).map(([k,v]) => (
+                          <div key={k} className="flex justify-between items-center text-xs">
+                             <span className="text-slate-400 font-mono">{k}</span>
+                             <span className="text-white text-right font-mono max-w-[150px] truncate">{String(v)}</span>
+                          </div>
+                        ))}
+                     </div>
+                  </div>
+               )}
+               
+               {/* Connected Nodes Map */}
+               <div>
+                  <h3 className="text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-4 flex items-center gap-2">
+                     <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                     </svg>
+                     Connected Dependencies
+                  </h3>
+                  
+                  <div className="flex flex-wrap gap-2">
+                     {links
+                       .map(e => {
+                          const sId = typeof e.source === 'object' ? e.source.id : e.source;
+                          const tId = typeof e.target === 'object' ? e.target.id : e.target;
+                          return { e, sId, tId };
+                       })
+                       .filter(({ sId, tId }) => sId === activeDisplayedNode.id || tId === activeDisplayedNode.id)
+                       .slice(0, 10) // Limit display
+                       .map(({ e, sId, tId }, idx) => {
+                          const isSource = sId === activeDisplayedNode.id;
+                          const otherNodeObj = isSource ? e.target : e.source;
+                          const otherNodeId = isSource ? tId : sId;
+                          
+                          return (
+                            <button 
+                               key={idx} 
+                               onClick={() => setCenterNodeId(otherNodeId)}
+                               className="flex items-center gap-2 px-3 py-1.5 bg-[#0F172A] hover:bg-[#1E293B] border border-[#1E293B] hover:border-slate-500 rounded-full transition-all text-left group"
+                            >
+                               <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: getStyleForType(typeof otherNodeObj === 'object' ? otherNodeObj : { id: otherNodeId, type: 'unknown' }) }}></span>
+                               <span className="text-xs font-mono text-slate-300 group-hover:text-white truncate max-w-[120px]">
+                                 {otherNodeId}
+                               </span>
+                            </button>
+                          );
+                       })}
+                       {links.filter(e => {
+                          const sId = typeof e.source === 'object' ? e.source.id : e.source;
+                          const tId = typeof e.target === 'object' ? e.target.id : e.target;
+                          return sId === activeDisplayedNode.id || tId === activeDisplayedNode.id;
+                       }).length === 0 && (
+                          <span className="text-xs text-slate-500 italic">No direct edges discovered.</span>
+                       )}
+                  </div>
+               </div>
+
             </div>
-         </div>
+          ) : (
+            <div className="h-full flex flex-col items-center justify-center text-center opacity-50">
+               <svg className="w-12 h-12 text-slate-500 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
+               </svg>
+               <p className="text-sm text-slate-400">Interact with the graph or plot a target entity to reveal hidden intelligence.</p>
+            </div>
+          )}
+        </div>
       </div>
 
-      <div className="flex-1 min-h-[600px] border border-border-light rounded-[2rem] bg-surface relative overflow-hidden shadow-inner flex items-center justify-center">
-         
-         {/* Background connecting lines pattern */}
-         <div className="absolute inset-0 z-0 opacity-70 pointer-events-none">
-            <svg className="w-full h-full">
-               {/* Fixed background lines for aesthetic */}
-               <line x1="50%" y1="50%" x2="30%" y2="30%" stroke="var(--border-strong)" strokeWidth="2" strokeDasharray="6 6" className="opacity-60" />
-               <line x1="50%" y1="50%" x2="70%" y2="25%" stroke="var(--border-strong)" strokeWidth="3" />
-               <line x1="50%" y1="50%" x2="65%" y2="70%" stroke="var(--border-strong)" strokeWidth="3" />
-               <line x1="50%" y1="50%" x2="25%" y2="65%" stroke="var(--border-strong)" strokeWidth="2" />
-               <circle cx="50%" cy="50%" r="8%" fill="none" stroke="var(--accent-indigo)" strokeWidth="1" opacity="0.3" className="animate-ping" style={{ animationDuration: '3s' }}/>
-            </svg>
-         </div>
-         
-         {isLoading ? (
-            <div className="z-10 animate-pulse text-text-secondary font-mono tracking-widest uppercase">Querying Matrix...</div>
-         ) : error ? (
-            <div className="z-10 text-accent-rose text-center bg-accent-rose-light px-8 py-4 rounded-xl border border-accent-rose/20 max-w-lg">
-              <p className="font-bold mb-1">Graph Query Failed</p>
-              <p className="text-sm">{error}</p>
-            </div>
-         ) : (
-           <div className="absolute inset-0 z-10 w-full h-full pointer-events-none">
-              <AnimatePresence>
-                {displayNodes.map((node, i) => {
-                  const isCenter = node.id === centerNodeId;
-                  const layout = getLayout(i - 1, displayNodes.length, isCenter);
-                  const styleStr = getStyleForType(node.type);
-                  
-                  return (
-                    <motion.div 
-                      key={node.id}
-                      initial={{ scale: 0, opacity: 0 }} 
-                      animate={{ scale: 1, opacity: 1 }} 
-                      exit={{ scale: 0, opacity: 0 }}
-                      transition={{ delay: i * 0.1, type: "spring", stiffness: 100 }}
-                      onClick={() => setSelectedNode(node)}
-                      className={`absolute -translate-x-1/2 -translate-y-1/2 ${isCenter ? 'w-36 h-36 border-[4px] z-30' : 'w-28 h-28 border-[2px] z-20 hover:scale-110'} rounded-full flex flex-col items-center justify-center backdrop-blur-md cursor-pointer transition-colors pointer-events-auto ${styleStr}`}
-                      style={layout}
-                    >
-                       <div className="text-center p-2">
-                         <span className={`font-mono font-black block drop-shadow-sm ${isCenter ? 'text-2xl mb-1.5' : 'text-lg mb-1'}`}>{node.label || node.id}</span>
-                         <span className={`text-[9px] uppercase font-bold tracking-widest bg-root px-1.5 py-0.5 rounded shadow-xs border border-border-light block mx-auto w-fit`}>{node.type}</span>
-                       </div>
-                    </motion.div>
-                  )
-                })}
-              </AnimatePresence>
-           </div>
-         )}
+      {/* RIGHT PANE: 3D Force Graph */}
+      <div ref={containerRef} className="flex-1 h-full relative overflow-hidden backdrop-blur-3xl bg-transparent">
+        
+        {/* Subtle grid background to enhance 3D depth perception */}
+        <div className="absolute inset-0 pointer-events-none opacity-10" style={{ backgroundImage: 'radial-gradient(circle at 50% 50%, rgba(255,255,255,0.1) 1px, transparent 1px)', backgroundSize: '40px 40px' }}></div>
 
-         {/* Overlay Panel for Inspector */}
-         {selectedNode && (
-         <div className="absolute top-8 left-8 w-96 max-h-[90%] overflow-y-auto bg-surface/95 backdrop-blur-xl border-2 border-border-strong rounded-[2rem] shadow-2xl p-8 z-40 font-sans custom-scrollbar">
-            <div className="flex justify-between items-center mb-6 border-b border-border-light pb-4">
-              <h3 className="font-display font-semibold text-2xl text-text-primary">Entity Inspector</h3>
-              <button onClick={() => setSelectedNode(null)} className="text-text-secondary hover:text-text-primary">✕</button>
+        {isLoading && (
+            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-[#020617]/50 backdrop-blur-sm">
+                <div className="w-12 h-12 rounded-full border-[3px] border-indigo-500/30 border-t-indigo-500 animate-spin mb-4"></div>
+                <div className="text-indigo-400 font-mono tracking-widest text-xs uppercase animate-pulse">Running Physics Engine...</div>
             </div>
-            
-            <div className="bg-root p-5 rounded-2xl border border-border-light shadow-inner mb-8">
-               <div className="flex items-center justify-between mb-4">
-                 <span className="font-mono font-black text-3xl text-accent-indigo drop-shadow-md tracking-tighter truncate max-w-[200px]" title={selectedNode.label || selectedNode.id}>{selectedNode.id}</span>
-                 <span className="text-[9px] bg-accent-indigo border border-accent-indigo px-2 flex-shrink-0 py-1 rounded shadow-sm font-bold text-white tracking-widest uppercase">{selectedNode.type}</span>
-               </div>
-               <p className="text-sm font-sans text-text-secondary leading-relaxed tracking-wide">
-                 {selectedNode.properties?.description || selectedNode.label || 'No detailed description found in graph schema.'}
-               </p>
-            </div>
+        )}
 
-            <div className="space-y-4 border-b border-border-light pb-8 text-sm">
-                <h4 className="font-semibold text-text-primary uppercase tracking-widest text-[11px] mb-2">Properties</h4>
-                {selectedNode.properties && Object.entries(selectedNode.properties).length > 0 ? (
-                  Object.entries(selectedNode.properties).map(([k,v]) => (
-                    <div key={k} className="flex justify-between">
-                      <span className="text-text-secondary font-mono text-xs uppercase">{k}</span>
-                      <span className="font-mono font-bold text-text-primary text-xs text-right max-w-[150px] truncate" title={String(v)}>{String(v)}</span>
-                    </div>
-                  ))
-                ) : (
-                  <span className="text-text-dim text-xs">No additional attributes.</span>
-                )}
-            </div>
-            
-            <div className="pt-6">
-              <span className="text-xs font-bold text-text-secondary uppercase tracking-widest block mb-4 border-none outline-none">Connected Edges (Depth 1)</span>
-              <div className="space-y-3 font-mono text-xs">
-                {edges.filter(e => e.source === selectedNode.id || e.target === selectedNode.id).map((e, idx) => {
-                   const isSource = e.source === selectedNode.id;
-                   const otherId = isSource ? e.target : e.source;
-                   return (
-                      <div key={idx} onClick={() => setCenterNodeId(otherId)} className="flex items-center gap-2 overflow-hidden w-full bg-elevated px-3 py-2.5 rounded-lg border border-border-base cursor-pointer hover:border-accent-indigo hover:shadow-md transition-all shadow-xs group">
-                        <span className="font-bold shrink-0 w-[45px] truncate" title={selectedNode.id}>{selectedNode.id}</span> 
-                        <span className="flex-1 text-center text-[10px] text-text-dim truncate uppercase tracking-widest font-bold px-1 group-hover:text-accent-indigo transition-colors mx-1" title={e.relationship}>
-                           {isSource ? '→ ' : '← '} {e.relationship} {isSource ? '→ ' : '← '}
-                        </span> 
-                        <span className="font-bold shrink-0 w-[45px] text-right truncate text-text-primary group-hover:text-accent-indigo transition-colors" title={otherId}>{otherId}</span>
-                      </div>
-                   )
-                })}
-                {edges.filter(e => e.source === selectedNode.id || e.target === selectedNode.id).length === 0 && (
-                   <div className="text-text-dim px-2">No edges materialized.</div>
-                )}
-              </div>
-            </div>
-         </div>
-         )}
+        {/* 3D Force Graph Container */}
+        <div className="absolute inset-0 z-0">
+          {dimensions.width > 0 && (
+            <ForceGraph3D
+              ref={fgRef}
+              width={dimensions.width}
+              height={dimensions.height}
+              graphData={{ nodes, links }}
+              nodeId="id"
+              nodeRelSize={7}
+              nodeResolution={32}
+              nodeOpacity={0.95}
+              nodeColor={getStyleForType} 
+              nodeLabel={(node: any) => `<div style="padding: 6px 10px; border-radius: 6px; background: rgba(15, 23, 42, 0.9); color: white; border: 1px solid #334155; pointer-events: none; font-family: monospace;">
+                                          <strong>${node.label || node.id}</strong><br/>
+                                          <small style="opacity: 0.7">${node.type.toUpperCase()}</small>
+                                        </div>`}
+              
+              // Influence Flow Animation Links
+              linkWidth={(link: any) => highlightLinks.has(link) ? 2.5 : 0.8}
+              linkColor={(link: any) => highlightLinks.has(link) ? 'rgba(255, 255, 255, 0.4)' : 'rgba(255,255,255,0.05)'}
+              linkDirectionalParticles={4}
+              linkDirectionalParticleWidth={(link: any) => highlightLinks.has(link) ? 3 : 0}
+              linkDirectionalParticleSpeed={(link: any) => link.weight * 0.005}
+              
+              onNodeHover={handleNodeHover}
+              onNodeClick={handleNodeClick}
+
+              // Elastic stretch physics requirement
+              onNodeDragEnd={(node: any) => {
+                node.fx = node.x;
+                node.fy = node.y;
+                node.fz = node.z;
+              }}
+              
+              enableNodeDrag={true}
+              backgroundColor="#020617" // Solid dark color matching theme
+            />
+          )}
+        </div>
+
       </div>
     </div>
   );

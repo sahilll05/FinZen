@@ -12,10 +12,10 @@ import { OverviewTab } from './components/OverviewTab';
 import { AnalyticsTab } from './components/AnalyticsTab';
 import { AllocationTab } from './components/AllocationTab';
 import { HoldingsTab } from './components/HoldingsTab';
-import { TransactionsTab } from './components/TransactionsTab';
+
 import { IntelligenceTab } from './components/IntelligenceTab';
 
-const TABS = ['Overview', 'Analytics', 'Allocation', 'Holdings', 'Transactions', 'Intelligence'] as const;
+const TABS = ['Overview', 'Analytics', 'Allocation', 'Holdings', 'Intelligence'] as const;
 type Tab = typeof TABS[number];
 
 export default function PortfolioDetailPage({ params }: { params: { id: string } }) {
@@ -223,7 +223,7 @@ export default function PortfolioDetailPage({ params }: { params: { id: string }
           {activeTab === 'Analytics' && <AnalyticsTab portfolio={portfolio} />}
           {activeTab === 'Allocation' && <AllocationTab holdings={holdings} />}
           {activeTab === 'Holdings' && <HoldingsTab portfolio={portfolio} holdings={holdings} onAddHolding={handleAddHolding} onRemoveHolding={handleRemoveHolding} />}
-          {activeTab === 'Transactions' && <TransactionsTab transactions={transactions} />}
+
           {activeTab === 'Intelligence' && <IntelligenceTab portfolio={portfolio} holdings={holdings} />}
         </div>
       </div>

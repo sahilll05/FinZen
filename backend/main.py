@@ -21,6 +21,7 @@ from app.routers import (
     risk_profiling,
     knowledge_graph,
     scenario_simulator,
+    market,
 )
 
 # Create database tables on startup
@@ -54,6 +55,7 @@ app.include_router(portfolio_xray.router,     prefix="/api/v1/xray",        tags
 app.include_router(risk_profiling.router,     prefix="/api/v1/risk-profile", tags=["Risk Profiling"])
 app.include_router(knowledge_graph.router,    prefix="/api/v1/graph",       tags=["Knowledge Graph"])
 app.include_router(scenario_simulator.router, prefix="/api/v1/scenario",    tags=["Scenario Simulator"])
+app.include_router(market.router,             prefix="/api/v1/market",      tags=["Market Data"])
 
 
 @app.get("/", tags=["Health"])

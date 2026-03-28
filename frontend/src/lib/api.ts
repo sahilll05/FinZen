@@ -49,6 +49,8 @@ export const portfolioAPI = {
   getMetrics: (id: string) => api.get(`/portfolio/${id}/metrics`),
   optimize: (id: string, data: any) => api.post(`/portfolio/${id}/optimize`, data),
   xray: (id: string) => api.get(`/portfolio/${id}/xray`),
+  // Direct endpoints — accept raw Appwrite holdings (no Python DB needed)
+  xrayDirect: (holdings: any[]) => api.post('/xray/analyze/holdings', { holdings }),
 };
 
 // ── Market Data ──────────────────────────────────────────────────────────────
@@ -132,12 +134,15 @@ export const scenarioAPI = {
   getAvailable: () => api.get('/scenario/available'),
   simulate: (data: { portfolio_id: string; scenarios: any[] }) =>
     api.post('/scenario/simulate', data),
+  // Direct endpoint — accepts Appwrite holdings (no Python DB portfolio_id needed)
+  simulateDirect: (data: { holdings: any[]; scenarios: any[] }) =>
+    api.post('/scenario/simulate/holdings', data),
 };
 
 // ── Knowledge Graph ──────────────────────────────────────────────────────────
 export const graphAPI = {
   query: (entity: string, depth?: number) =>
-    api.get('/graph/query', { params: { entity, depth } }),
+    api.get('/graph/data', { params: { center: entity, depth } }),
 };
 
 export default api;

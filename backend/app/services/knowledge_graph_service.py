@@ -87,9 +87,9 @@ def get_graph_data(center_node: str = None, depth: int = 2) -> dict:
             "properties": {k: v for k, v in data.items() if k not in ["type", "name"]},
         })
 
-    edges = []
+    links = []
     for u, v, data in subgraph.edges(data=True):
-        edges.append({
+        links.append({
             "source": u,
             "target": v,
             "relationship": data.get("relationship", "RELATED"),
@@ -98,9 +98,9 @@ def get_graph_data(center_node: str = None, depth: int = 2) -> dict:
 
     return {
         "nodes": nodes,
-        "edges": edges,
+        "links": links,
         "total_nodes": len(nodes),
-        "total_edges": len(edges),
+        "total_edges": len(links),
     }
 
 
