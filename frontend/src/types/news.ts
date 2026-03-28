@@ -1,0 +1,1 @@
+export interface Article { id: string; title: string; content: string; source: string; url: string; published_at: string; trust_score: number; sentiment: { sentiment: "positive"|"negative"|"neutral"; score: number; confidence: number; }; entities: string[]; country_codes: string[]; }

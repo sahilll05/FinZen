@@ -1,0 +1,47 @@
+# === Core Framework ===
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-multipart==0.0.6
+python-dotenv==1.0.0
+pydantic==2.5.0
+pydantic-settings==2.1.0
+
+# === Database ===
+sqlalchemy==2.0.23
+aiosqlite==0.19.0
+
+# === ML & AI ===
+scikit-learn>=1.5.0
+xgboost>=2.1.0
+numpy>=2.1.0
+pandas>=2.2.0
+joblib>=1.4.0
+
+# === NLP / Sentiment ===
+transformers>=4.40.0
+torch>=2.4.0
+sentencepiece>=0.2.0
+
+# === Portfolio Optimization ===
+cvxpy>=1.5.0
+
+# === Market Data ===
+yfinance==0.2.31
+requests==2.31.0
+
+# === Knowledge Graph ===
+networkx==3.2.1
+
+# === AI Assistant (Groq free API) ===
+groq==0.4.1
+httpx==0.25.2
+
+# === News Fetching ===
+feedparser==6.0.11
+beautifulsoup4==4.12.2
+
+# === File parsing ===
+openpyxl==3.1.2
+
+# === Utilities ===
+python-dateutil==2.8.2

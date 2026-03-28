@@ -1,0 +1,74 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* ── Page Backgrounds ───────────────────────────────── */
+  --bg-root:        #faf9f7;   /* warm off-white — the main page bg, never pure #fff */
+  --bg-base:        #f5f3ef;   /* slightly warmer — used for page sections */
+  --bg-surface:     #ffffff;   /* pure white for cards/panels — pops off bg-root */
+  --bg-elevated:    #f0ede8;   /* subtle hover states, input backgrounds */
+  --bg-overlay:     #ede9e3;   /* dropdown backgrounds, modals backdrop */
+
+  /* ── Borders ─────────────────────────────────────────── */
+  --border-light:   #e8e3da;   /* barely visible dividers */
+  --border-base:    #d8d0c5;   /* standard card borders */
+  --border-strong:  #bfb5a7;   /* focused elements, section dividers */
+  --border-accent:  #c5a882;   /* warm accent borders on highlighted cards */
+
+  /* ── Brand & Accent Colors ───────────────────────────── */
+  /* Indigo — primary brand, CTAs, nav active state */
+  --accent-indigo:       #4338ca;   /* rich indigo — primary brand color */
+  --accent-indigo-light: #eef2ff;   /* indigo tint for backgrounds */
+  --accent-indigo-mid:   #818cf8;   /* softer indigo for charts, borders */
+
+  /* Amber — warnings, trust scores, important callouts */
+  --accent-amber:        #d97706;   /* warm amber */
+  --accent-amber-light:  #fef3c7;   /* amber tint background */
+
+  /* Sage — positive, gains, low risk */
+  --accent-sage:         #15803d;   /* rich green — NOT a neon color */
+  --accent-sage-light:   #dcfce7;   /* sage tint background */
+
+  /* Rose — negative, losses, high risk */
+  --accent-rose:         #be123c;   /* deep crimson rose */
+  --accent-rose-light:   #ffe4e6;   /* rose tint background */
+
+  /* Violet — AI features, knowledge graph */
+  --accent-violet:       #7c3aed;
+  --accent-violet-light: #ede9fe;
+
+  /* Teal — geopolitical features, maps */
+  --accent-teal:         #0f766e;
+  --accent-teal-light:   #ccfbf1;
+
+  /* ── Typography ─────────────────────────────────────── */
+  --text-primary:   #1c1917;   /* near-black warm — for headings */
+  --text-body:      #44403c;   /* dark warm brown — for body text */
+  --text-secondary: #78716c;   /* muted — timestamps, labels */
+  --text-dim:       #a8a29e;   /* very muted — placeholders */
+  --text-inverse:   #faf9f7;   /* text on dark/accent backgrounds */
+
+  /* ── Shadows (soft, warm — no neon glows) ───────────── */
+  --shadow-xs:   0 1px 2px rgba(28, 25, 23, 0.06);
+  --shadow-sm:   0 2px 8px rgba(28, 25, 23, 0.08);
+  --shadow-md:   0 4px 16px rgba(28, 25, 23, 0.10);
+  --shadow-lg:   0 8px 32px rgba(28, 25, 23, 0.12);
+  --shadow-xl:   0 16px 48px rgba(28, 25, 23, 0.14);
+
+  /* ── Accent shadow tints (subtle color, not glow) ────── */
+  --shadow-indigo: 0 4px 20px rgba(67, 56, 202, 0.12);
+  --shadow-sage:   0 4px 16px rgba(21, 128, 61, 0.12);
+  --shadow-rose:   0 4px 16px rgba(190, 18, 60, 0.10);
+}
+
+body {
+  background-color: var(--bg-root);
+  color: var(--text-body);
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}

@@ -1,0 +1,11 @@
+ticker,quantity,avg_cost,country,sector
+AAPL,10,175.00,US,Technology
+MSFT,5,380.00,US,Technology
+GOOGL,3,140.00,US,Technology
+AMZN,4,185.00,US,Consumer
+JPM,8,195.00,US,Banking
+XOM,15,110.00,US,Oil & Gas
+JNJ,7,155.00,US,Healthcare
+RELIANCE.NS,20,2500.00,IN,Oil & Gas
+TCS.NS,10,3800.00,IN,Technology
+BABA,12,85.00,CN,Technology
