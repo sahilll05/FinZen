@@ -15,7 +15,7 @@ A 3D interactive globe and 2D regional heatmap powered by real-time open-source 
 ### 3. Causal Chain "Hidden Risk" Engine
 Utilizes **Directed Knowledge Graphs** (via NetworkX) to model the global economy. By tracing causal chains (e.g., *US Sanctions → Oil Export Block → Currency Depreciation*), the platform can calculate the hidden exposure percentage of your specific holdings to seemingly unrelated macro events. 
 
-### 4. FinSight AI Assistant
+### 4. FinZen AI Assistant
 An integrated LLM assistant powered by **Llama-3.1-8b** (via the Groq API). It uses dynamic **Context-Injection**, pulling your live portfolio allocations and regional risk factors directly into the system prompt. It offers instantaneous, conversational, and highly personalized financial insights.
 
 ### 5. AI Risk Profiler
@@ -62,15 +62,6 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-Create a `.env` file in the `backend` folder containing the following:
-```env
-APPWRITE_ENDPOINT=your_appwrite_endpoint
-APPWRITE_PROJECT_ID=your_project_id
-APPWRITE_API_KEY=your_api_key
-GROQ_API_KEY=your_groq_api_key
-NEWS_API_KEY=your_news_api_key
-```
-
 Run the backend server:
 ```bash
 uvicorn main:app --reload --port 8000
@@ -81,12 +72,6 @@ Open a new terminal, navigate to the frontend directory, and install the UI depe
 ```bash
 cd frontend
 npm install
-```
-
-Configure the `.env.local` file with your Appwrite details:
-```env
-NEXT_PUBLIC_APPWRITE_ENDPOINT=your_appwrite_endpoint
-NEXT_PUBLIC_APPWRITE_PROJECT_ID=your_project_id
 ```
 
 Run the development server:
