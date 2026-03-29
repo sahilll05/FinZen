@@ -42,13 +42,31 @@ function riskRadius(score: number): number {
   return 0.3 + (score / 10) * 0.6;
 }
 
-// Conflict arcs between geopolitically linked country pairs
-const CONFLICT_ARCS = [
-  { startLat: 61.52, startLng: 105.31, endLat: 48.37, endLng: 31.16, color: "rgba(239,68,68,0.6)", label: "RU-UA" },
-  { startLat: 35.86, startLng: 104.19, endLat: 23.69, endLng: 120.96, color: "rgba(239,68,68,0.6)", label: "CN-TW" },
-  { startLat: 32.42, startLng: 53.68, endLat: 31.04, endLng: 34.85, color: "rgba(245,158,11,0.5)", label: "IR-IL" },
-  { startLat: 32.42, startLng: 53.68, endLat: 23.88, endLng: 45.07, color: "rgba(245,158,11,0.45)", label: "IR-SA" },
+// Arc configs: major active geopolitical tensions
+const BASE_CONFLICT_ARCS = [
+  // Active conflicts
+  { startLat: 61.52, startLng: 105.31, endLat: 48.37, endLng: 31.16, severity: "high",   label: "RU↔UA" },
+  { startLat: 35.86, startLng: 104.19, endLat: 23.69, endLng: 120.96, severity: "high",   label: "CN↔TW" },
+  { startLat: 31.04, startLng: 34.85,  endLat: 32.42, endLng: 53.68,  severity: "high",   label: "IL↔IR" },
+  // Regional tensions
+  { startLat: 32.42, startLng: 53.68,  endLat: 23.88, endLng: 45.07,  severity: "medium", label: "IR↔SA" },
+  { startLat: 35.86, startLng: 104.19, endLat: 35.90, endLng: 127.76, severity: "medium", label: "CN↔KR" },
+  { startLat: 35.86, startLng: 104.19, endLat: 20.59, endLng: 78.96,  severity: "medium", label: "CN↔IN" },
+  { startLat: 39.50, startLng: -98.35, endLat: 35.86, endLng: 104.19, severity: "medium", label: "US↔CN" },
+  { startLat: 39.50, startLng: -98.35, endLat: 32.42, endLng: 53.68,  severity: "medium", label: "US↔IR" },
+  { startLat: 20.59, startLng: 78.96,  endLat: 30.37, endLng: 69.34,  severity: "medium", label: "IN↔PK" },
+  // Sanctions / Economic pressure
+  { startLat: 39.50, startLng: -98.35, endLat: 61.52, endLng: 105.31, severity: "low",    label: "US↔RU" },
+  { startLat: 55.37, startLng: -3.43,  endLat: 61.52, endLng: 105.31, severity: "low",    label: "EU↔RU" },
+  { startLat: 23.88, startLng: 45.07,  endLat: 9.08,  endLng: 8.67,   severity: "low",    label: "SA↔NG" },
 ];
+
+function getSeverityColor(severity: string, opacity = 1): string {
+  if (severity === "high")   return `rgba(239,68,68,${opacity})`;
+  if (severity === "medium") return `rgba(245,158,11,${opacity})`;
+  return `rgba(148,163,184,${opacity})`;
+}
+
 
 export default function GlobeViewer({ countries, onCountryClick }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -90,14 +108,29 @@ export default function GlobeViewer({ countries, onCountryClick }: Props) {
     if (!containerRef.current || countries.length === 0) return;
 
     let globe: any;
+    let cancelled = false;
+    let rafId: number;
 
     const init = async () => {
       const GlobeLib = (await import("globe.gl")).default as any;
+      if (cancelled) return;
 
-      const width = containerRef.current!.clientWidth;
-      const height = containerRef.current!.clientHeight;
+      // Wait until the container has real dimensions (Framer Motion fade-in can delay layout)
+      const waitForSize = (): Promise<{ w: number; h: number }> =>
+        new Promise((resolve) => {
+          const check = () => {
+            const w = containerRef.current?.clientWidth ?? 0;
+            const h = containerRef.current?.clientHeight ?? 0;
+            if (w > 0 && h > 0) { resolve({ w, h }); return; }
+            if (!cancelled) rafId = requestAnimationFrame(check);
+          };
+          check();
+        });
 
-      globe = GlobeLib()(containerRef.current!)
+      const { w: width, h: height } = await waitForSize();
+      if (cancelled || !containerRef.current) return;
+
+      globe = GlobeLib()(containerRef.current)
         .width(width)
         .height(height)
         .backgroundColor("rgba(0,0,0,0)")
@@ -124,17 +157,17 @@ export default function GlobeViewer({ countries, onCountryClick }: Props) {
         .pointResolution(12)
         .pointsMerge(false)
         // ── Conflict arcs ──
-        .arcsData(CONFLICT_ARCS)
+        .arcsData(BASE_CONFLICT_ARCS)
         .arcStartLat((d: any) => d.startLat)
         .arcStartLng((d: any) => d.startLng)
         .arcEndLat((d: any) => d.endLat)
         .arcEndLng((d: any) => d.endLng)
-        .arcColor((d: any) => [d.color, d.color])
-        .arcAltitude(0.25)
-        .arcStroke(0.5)
+        .arcColor((d: any) => [getSeverityColor(d.severity, 0.7), getSeverityColor(d.severity, 0.2)])
+        .arcAltitude((d: any) => d.severity === "high" ? 0.35 : d.severity === "medium" ? 0.22 : 0.12)
+        .arcStroke((d: any) => d.severity === "high" ? 0.7 : 0.4)
         .arcDashLength(0.4)
         .arcDashGap(0.2)
-        .arcDashAnimateTime(2500)
+        .arcDashAnimateTime((d: any) => d.severity === "high" ? 1800 : 2800)
         // ── Labels ──
         .labelsData(countries)
         .labelLat((d: any) => d.lat)
@@ -171,6 +204,15 @@ export default function GlobeViewer({ countries, onCountryClick }: Props) {
       globe.controls().dampingFactor = 0.1;
       globe.pointOfView({ lat: 20, lng: 10, altitude: 2.2 });
 
+      // Handle container resize
+      const resizeObserver = new ResizeObserver(([entry]) => {
+        const { width: rw, height: rh } = entry.contentRect;
+        if (globeRef.current && rw > 0 && rh > 0) {
+          globeRef.current.width(rw).height(rh);
+        }
+      });
+      if (containerRef.current) resizeObserver.observe(containerRef.current);
+
       // Pause rotation on hover
       containerRef.current!.addEventListener("mouseenter", () => {
         globe.controls().autoRotate = false;
@@ -186,14 +228,15 @@ export default function GlobeViewer({ countries, onCountryClick }: Props) {
     init();
 
     return () => {
+      cancelled = true;
+      if (rafId) cancelAnimationFrame(rafId);
       if (globeRef.current) {
-        try {
-          globeRef.current._destructor?.();
-        } catch {}
+        try { globeRef.current._destructor?.(); } catch {}
         globeRef.current = null;
       }
     };
   }, [countries, fetchTooltipData, onCountryClick]);
+
 
   // Update tooltip position on mouse move
   const handleMouseMove = useCallback(

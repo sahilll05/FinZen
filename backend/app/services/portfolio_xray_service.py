@@ -1,37 +1,13 @@
-"""
-Portfolio X-Ray & Hidden Risk Detection Service.
-Reveals hidden risks that standard views miss.
-"""
-
+import yfinance as yf
 from typing import List, Dict
 from app.utils.sector_mapping import get_stock_info
 from app.services.geo_risk_service import analyze_country_risk
 from app.services.causal_chain_service import get_hidden_risks
 
 
-# Known supply chain dependencies (simplified)
-SUPPLY_CHAIN_DEPS = {
-    "AAPL": {"Taiwan": 0.60, "China": 0.25, "US": 0.15},
-    "MSFT": {"US": 0.70, "India": 0.15, "China": 0.15},
-    "TSLA": {"China": 0.40, "US": 0.40, "Germany": 0.20},
-    "NVDA": {"Taiwan": 0.70, "US": 0.20, "South Korea": 0.10},
-    "GOOGL": {"US": 0.80, "India": 0.10, "Europe": 0.10},
-    "AMZN": {"US": 0.70, "China": 0.20, "India": 0.10},
-    "JPM": {"US": 0.80, "UK": 0.10, "Europe": 0.10},
-}
-
-# Revenue geographic breakdown
-REVENUE_GEO = {
-    "AAPL": {"US": 0.42, "China": 0.19, "Europe": 0.25, "Japan": 0.08, "Other": 0.06},
-    "MSFT": {"US": 0.50, "Europe": 0.25, "Asia": 0.15, "Other": 0.10},
-    "GOOGL": {"US": 0.48, "Europe": 0.30, "Asia": 0.15, "Other": 0.07},
-    "AMZN": {"US": 0.62, "Europe": 0.22, "Asia": 0.10, "Other": 0.06},
-}
-
-
 def xray_portfolio(holdings: List[dict]) -> dict:
     """
-    Perform deep X-Ray analysis on portfolio.
+    Perform deep X-Ray analysis on portfolio using REAL yfinance fundamental data.
     """
     country_exposure = {}
     sector_exposure = {}
@@ -40,16 +16,49 @@ def xray_portfolio(holdings: List[dict]) -> dict:
     total_value = 0
 
     tickers = []
+    # Real quantitative accumulators
+    total_beta = 0.0
+    total_pe = 0.0
+    total_yield = 0.0
+    valid_beta_value = 0.0
+    valid_pe_value = 0.0
+    valid_yield_value = 0.0
 
     for h in holdings:
-        ticker = h.get("ticker", "")
+        ticker = h.get("ticker", "").strip()
         tickers.append(ticker)
         value = h.get("market_value", h.get("quantity", 0) * h.get("avg_cost", 0))
         total_value += value
-        country = h.get("country", "US")
-        sector = h.get("sector", "Unknown")
+        
+        # Override dummy data with actual yfinance info
+        try:
+            info = yf.Ticker(ticker).info
+            # Use real fundamental country and sector if available
+            country = info.get("country", h.get("country", "US"))
+            sector = info.get("sector", h.get("sector", "Unknown"))
+            
+            # Fetch real quantitative info
+            beta = info.get("beta")
+            if beta is not None:
+                total_beta += beta * value
+                valid_beta_value += value
+                
+            pe = info.get("trailingPE") or info.get("forwardPE")
+            if pe is not None:
+                total_pe += pe * value
+                valid_pe_value += value
+                
+            div_yield = info.get("dividendYield") or info.get("trailingAnnualDividendYield")
+            if div_yield is not None:
+                total_yield += div_yield * value
+                valid_yield_value += value
+                
+        except Exception as e:
+            # Fallback to provided basic info if fetching fails
+            country = h.get("country", "US")
+            sector = h.get("sector", "Unknown")
 
-        # Country exposure
+        # Country exposure mapping
         country_exposure[country] = country_exposure.get(country, 0) + value
         # Sector exposure
         sector_exposure[sector] = sector_exposure.get(sector, 0) + value
@@ -57,10 +66,35 @@ def xray_portfolio(holdings: List[dict]) -> dict:
     if total_value == 0:
         total_value = 1
 
+    # ── Normalize Quantitative Metrics ──
+    avg_beta = round(total_beta / valid_beta_value, 2) if valid_beta_value > 0 else 1.0
+    avg_pe = round(total_pe / valid_pe_value, 2) if valid_pe_value > 0 else 0.0
+    avg_yield_pct = round((total_yield / valid_yield_value) * 100, 2) if valid_yield_value > 0 else 0.0
+
+    quant_metrics = {
+        "portfolio_beta": avg_beta,
+        "trailing_pe": avg_pe,
+        "dividend_yield_pct": avg_yield_pct
+    }
+
+    # Add quantitative hidden risks
+    if avg_beta > 1.3:
+        hidden_risks.append(f"📈 High Volatility: Portfolio beta is {avg_beta}, indicating extreme sensitivity to market swings.")
+    elif avg_beta < 0.7:
+        hidden_risks.append(f"🛡️ Defensive Tilt: Low portfolio beta ({avg_beta}) may underperform during bull runs.")
+        
+    if avg_pe > 30:
+        hidden_risks.append(f"📊 Valuation Risk: Average P/E is {avg_pe}, suggesting an overvalued high-growth concentration.")
+        
+    if avg_yield_pct > 6.0:
+        hidden_risks.append(f"💰 Yield Trap Warning: Unusually high dividend yield ({avg_yield_pct}%) means dividend cuts could occur in downturns.")
+
     # ── Build exposure details ──
     country_details = []
+    geographic_distribution = {}
     for country, value in sorted(country_exposure.items(), key=lambda x: x[1], reverse=True):
         pct = round((value / total_value) * 100, 1)
+        geographic_distribution[country] = pct
         risk = analyze_country_risk(country)
         country_details.append({
             "category": "country",
@@ -82,7 +116,7 @@ def xray_portfolio(holdings: List[dict]) -> dict:
 
         if pct > 35:
             concentration_risks.append(
-                f"⚠️ {sector} sector concentration: {pct}% — consider diversifying"
+                f"⚠️ {sector} concentration: {pct}% — consider diversifying"
             )
 
     # ── Calculate concentration index (HHI) ──
@@ -102,75 +136,44 @@ def xray_portfolio(holdings: List[dict]) -> dict:
         "herfindahl_index": hhi
     }
 
-    # ── Supply chain analysis ──
-    supply_chain_countries = {}
-    for h in holdings:
-        ticker = h["ticker"]
-        deps = SUPPLY_CHAIN_DEPS.get(ticker, {})
-        weight = h.get("market_value", 0) / total_value
-        for country, dep_pct in deps.items():
-            supply_chain_countries[country] = supply_chain_countries.get(country, 0) + (dep_pct * weight)
-
-    for country, total_dep in supply_chain_countries.items():
-        if total_dep > 0.20:  # If >20% portfolio depends on this country
-            hidden_risks.append(
-                f"🔗 Supply chain: {round(total_dep * 100, 0)}% of your portfolio's supply chain deeply depends on {country}"
-            )
-
-    # ── Revenue geography analysis ──
-    revenue_countries = {}
-    for h in holdings:
-        ticker = h["ticker"]
-        rev_geo = REVENUE_GEO.get(ticker, {})
-        weight = h.get("market_value", 0) / total_value
-        for country, rev_pct in rev_geo.items():
-            revenue_countries[country] = revenue_countries.get(country, 0) + (rev_pct * weight)
-
-    # Normalize to nice dict for frontend
-    frontend_revenue_geography = {
-        k: round(v * 100, 2) for k, v in revenue_countries.items() if v > 0.01
-    }
-
-    for country, total_rev in revenue_countries.items():
-        if country != "US" and total_rev > 0.20:
-            hidden_risks.append(
-                f"💰 Revenue: Over {round(total_rev*100, 0)}% of your portfolio's revenue relies on {country}"
-            )
-
     # ── Causal chain hidden risks ──
     causal_risks = get_hidden_risks(tickers)
-    for risk in causal_risks.get("hidden_risks", [])[:5]:
+    for risk in causal_risks.get("hidden_risks", [])[:3]:
         hidden_risks.append(f"⛓️ {risk['description']}")
 
     # ── Correlation warning ──
     correlation_warning = None
     if len(sector_exposure) <= 2:
         correlation_warning = (
-            "⚠️ Low sector diversification. During market stress, correlations spike to 0.9+ — "
-            "your portfolio may lose more than expected."
+            "⚠️ Low sector diversification. During market stress, cross-correlations spike to 0.9+ — "
+            "your portfolio loses protective benefits."
         )
 
     # ── Recommendations ──
     recommendations = []
     if len(country_exposure) == 1:
-        recommendations.append("Diversify internationally to reduce single-country risk")
+        recommendations.append("Diversify internationally to reduce single-country geographic risk.")
     if any(d["exposure_pct"] > 30 for d in sector_details):
-        recommendations.append("Reduce sector concentration — no sector should exceed 30%")
-    if hidden_risks:
-        recommendations.append("Review hidden supply chain and revenue exposures")
+        recommendations.append("Reduce sector concentration — rebalance so no single sector exceeds 30%.")
+    if avg_pe > 25:
+        recommendations.append("Consider hedging with value or defensive stocks to offset high-growth P/E valuations.")
 
-    # Overall risk score
+    # Overall risk score (aggregate high geographic, beta, and concentration)
     overall_risk = min(100, sum(d["exposure_pct"] for d in country_details if d["risk_level"] in ["HIGH", "CRITICAL"]))
+    if avg_beta > 1.2:
+        overall_risk = min(100, overall_risk + 20)
+    if hhi > 0.3:
+        overall_risk = min(100, overall_risk + 15)
 
     return {
         "portfolio_id": holdings[0].get("portfolio_id", 0) if holdings else 0,
         "concentration_risk": concentration_risk,
-        "revenue_geography": frontend_revenue_geography,
-        "supply_chain_risk": {k: round(v*100, 2) for k, v in supply_chain_countries.items()},
+        "quantitative_metrics": quant_metrics,
+        "geographic_distribution": geographic_distribution,
         "country_exposure": country_details,
         "sector_exposure": sector_details,
         "hidden_risks": hidden_risks,
         "correlation_warning": correlation_warning,
         "overall_risk_score": round(overall_risk, 1),
         "recommendations": recommendations,
-    }
+    }

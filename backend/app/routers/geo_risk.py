@@ -133,3 +133,23 @@ def get_globe_data_endpoint():
 def get_country_stocks_endpoint(country_code: str):
     """Real-time stock index data for a country (via yfinance, 5-min cache)."""
     return get_country_stocks(country_code.upper())
+
+
+@router.delete("/cache/stocks")
+def clear_stock_cache():
+    """Clear the in-memory stock cache so next request fetches fresh data."""
+    from app.services.geo_risk_service import _stock_cache
+    cleared = len(_stock_cache)
+    _stock_cache.clear()
+    return {"cleared": cleared, "message": "Stock cache cleared"}
+
+
+@router.get("/debug/yfinance")
+def debug_yfinance():
+    import yfinance as yf
+    import sys
+    return {
+        "version": getattr(yf, "__version__", "unknown"),
+        "executable": sys.executable,
+        "path": sys.path
+    }

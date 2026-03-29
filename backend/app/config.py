@@ -11,7 +11,9 @@ _BACKEND_ENV_PATH = Path(__file__).resolve().parents[1] / ".env"
 class Settings(BaseSettings):
     APP_NAME: str = "FinSight AI"
     DEBUG: bool = True
-    DATABASE_URL: str = "sqlite:///./finsight.db"
+    APPWRITE_ENDPOINT: str = "https://sgp.cloud.appwrite.io/v1"
+    APPWRITE_PROJECT_ID: str = "69c80e85002b588face1"
+    APPWRITE_API_KEY: str = ""
     GROQ_API_KEY: str = ""
     NEWS_API_KEY: str = ""
     ALPHA_VANTAGE_API_KEY: str = ""

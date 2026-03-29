@@ -51,14 +51,77 @@ interface NewsEntry {
 
 const COUNTRY_FLAGS: Record<string, string> = {
   US: "🇺🇸", CN: "🇨🇳", RU: "🇷🇺", TW: "🇹🇼", IN: "🇮🇳",
-  JP: "🇯🇵", GB: "🇬🇧", DE: "🇩🇪",
+  JP: "🇯🇵", GB: "🇬🇧", DE: "🇩🇪", FR: "🇫🇷", BR: "🇧🇷",
+  AU: "🇦🇺", CA: "🇨🇦", SA: "🇸🇦", ZA: "🇿🇦", NG: "🇳🇬",
+  MX: "🇲🇽", AR: "🇦🇷", KR: "🇰🇷", SG: "🇸🇬", ID: "🇮🇩",
+  TH: "🇹🇭", MY: "🇲🇾", VN: "🇻🇳", PH: "🇵🇭", PK: "🇵🇰",
+  TR: "🇹🇷", UA: "🇺🇦", IR: "🇮🇷", IL: "🇮🇱", EG: "🇪🇬",
+  IT: "🇮🇹", ES: "🇪🇸", PL: "🇵🇱", NL: "🇳🇱", SE: "🇸🇪",
+  NO: "🇳🇴", CH: "🇨🇭", NZ: "🇳🇿", AE: "🇦🇪", CO: "🇨🇴",
+  CL: "🇨🇱", PE: "🇵🇪", KE: "🇰🇪", GH: "🇬🇭", MA: "🇲🇦",
 };
-const COUNTRY_CODES = ["US", "CN", "RU", "TW", "IN", "JP", "GB", "DE"];
-const GRID_SIZES: Record<string, string> = {
-  US: "col-span-3 row-span-2", CN: "col-span-2 row-span-2",
-  RU: "col-span-1 row-span-1", TW: "col-span-1 row-span-1",
-  IN: "col-span-2 row-span-1", JP: "col-span-1 row-span-1",
-  GB: "col-span-1 row-span-1", DE: "col-span-1 row-span-1",
+
+// Country sets per region (ordered to match grid layout spans perfectly)
+const REGION_COUNTRIES: Record<string, string[]> = {
+  // Global: US(3×2) + CN(2×2) fills rows 1-2 | RU+IN(2)+GB+DE fills row 3 | BR+JP+SA+TR fills row 4
+  "Global":   ["US", "CN", "RU", "IN", "GB", "DE", "BR", "JP", "SA", "TR"],
+  // Asia: CN(3×2)+IN(2×2) fills rows 1-2 | JP(2)+KR+TW+SG row 3 | ID(2)+TH+VN+MY row 4 | PH+PK partial row 5
+  "Asia":     ["CN", "IN", "JP", "KR", "TW", "SG", "ID", "TH", "VN", "MY", "PH", "PK"],
+  // Europe: GB+DE+FR row 1 (3+2) wait — RU(3×2) | GB+DE+FR in rows 1-2 right side | UA+TR+IT+ES row 3 | PL+NL+SE+CH row 4
+  "Europe":   ["RU", "GB", "DE", "FR", "UA", "TR", "IT", "ES", "PL", "NL", "SE", "CH"],
+  // Americas: US(3×2)+BR(2×2) fills rows 1-2 | CA(2)+MX+AR+CO row 3 | CL+PE partial row 4
+  "Americas": ["US", "BR", "CA", "MX", "AR", "CO", "CL", "PE"],
+  // Middle East & Africa: SA(2×2) | IR+IL+EG(2) row 1 right | AE+ZA(2) row 2 right | NG+KE+MA+GH row 3
+  "Middle East & Africa": ["SA", "IR", "IL", "EG", "AE", "ZA", "NG", "KE", "MA", "GH"],
+};
+
+// Grid span per country per region — all layouts verified for 5-column grid
+// Row math: check cols sum ≤ 5 per row, including row-span continuations
+const REGION_GRID_SIZES: Record<string, Record<string, string>> = {
+  // Row1: US(3) + CN(2) = 5 ✓  Row2: same (row-span)  Row3: RU(1)+IN(2)+GB(1)+DE(1) = 5 ✓  Row4: BR(1)+JP(1)+SA(1)+TR(1)+[empty] = 4
+  "Global": {
+    US: "col-span-3 row-span-2", CN: "col-span-2 row-span-2",
+    RU: "col-span-1",            IN: "col-span-2",
+    GB: "col-span-1",            DE: "col-span-1",
+    BR: "col-span-1",            JP: "col-span-1",
+    SA: "col-span-1",            TR: "col-span-1",
+  },
+  // Row1: CN(3) + IN(2) = 5 ✓  Row2: same  Row3: JP(2)+KR(1)+TW(1)+SG(1) = 5 ✓  Row4: ID(2)+TH(1)+VN(1)+MY(1) = 5 ✓  Row5: PH(1)+PK(1)
+  "Asia": {
+    CN: "col-span-3 row-span-2", IN: "col-span-2 row-span-2",
+    JP: "col-span-2",            KR: "col-span-1",
+    TW: "col-span-1",            SG: "col-span-1",
+    ID: "col-span-2",            TH: "col-span-1",
+    VN: "col-span-1",            MY: "col-span-1",
+    PH: "col-span-1",            PK: "col-span-1",
+  },
+  // Row1: RU(3×2 span) + GB(2) = 5 ✓  Row2: RU-cont + DE(1)+FR(1)+[fills right] = OK
+  // Row3: UA(2)+TR(1)+IT(1)+ES(1) = 5 ✓  Row4: PL(1)+NL(1)+SE(1)+CH(1)+[empty] = 4
+  "Europe": {
+    RU: "col-span-3 row-span-2", GB: "col-span-2",
+    DE: "col-span-1",            FR: "col-span-1",
+    UA: "col-span-2",            TR: "col-span-1",
+    IT: "col-span-1",            ES: "col-span-1",
+    PL: "col-span-1",            NL: "col-span-1",
+    SE: "col-span-1",            CH: "col-span-1",
+  },
+  // Row1: US(3×2) + BR(2×2) = 5 ✓  Row2: same  Row3: CA(2)+MX(1)+AR(1)+CO(1) = 5 ✓  Row4: CL(1)+PE(1)
+  "Americas": {
+    US: "col-span-3 row-span-2", BR: "col-span-2 row-span-2",
+    CA: "col-span-2",            MX: "col-span-1",
+    AR: "col-span-1",            CO: "col-span-1",
+    CL: "col-span-1",            PE: "col-span-1",
+  },
+  // Row1: SA(2×2) + IR(1)+IL(1)+EG(2-wait only 3 remain)...
+  // SA(2×2): cols 1-2, rows 1-2  | Row1 right: IR(1 col3)+IL(1 col4)+EG(1 col5) = 3
+  // Row2 right: AE(1 col3)+ZA(2 cols4-5) = 3 | Row3: NG(1)+KE(1)+MA(1)+GH(1)+[empty] = 4
+  "Middle East & Africa": {
+    SA: "col-span-2 row-span-2", IR: "col-span-1",
+    IL: "col-span-1",            EG: "col-span-1",
+    AE: "col-span-1",            ZA: "col-span-2",
+    NG: "col-span-1",            KE: "col-span-1",
+    MA: "col-span-1",            GH: "col-span-1",
+  },
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -94,11 +157,11 @@ export default function GeopoliticalPage() {
   const [viewMode, setViewMode] = useState<"2d" | "3d">("2d");
   const [selectedCountry, setSelectedCountry] = useState<string | null>(null);
 
-  // 2D heatmap state
   const [countryRisks, setCountryRisks] = useState<Record<string, CountryRisk>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
   const [activeFilter, setActiveFilter] = useState("Global");
+  const [loadingFilter, setLoadingFilter] = useState(false);
 
   // 3D globe state
   const [globeCountries, setGlobeCountries] = useState<GlobeCountry[]>([]);
@@ -109,9 +172,20 @@ export default function GeopoliticalPage() {
   const [detailNews, setDetailNews] = useState<NewsEntry[]>([]);
   const [extrasLoading, setExtrasLoading] = useState(false);
 
+  // Derived: current country codes to display
+  const currentCodes = REGION_COUNTRIES[activeFilter] ?? REGION_COUNTRIES["Global"];
+  const currentGridSizes = REGION_GRID_SIZES[activeFilter] ?? REGION_GRID_SIZES["Global"];
+
   useEffect(() => {
-    loadAllRisks();
+    loadRisksForRegion("Global");
   }, []);
+
+  // Reload when active filter changes
+  useEffect(() => {
+    loadRisksForRegion(activeFilter);
+    setSelectedCountry(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeFilter]);
 
   // Load 3D globe data when switching to 3D view
   useEffect(() => {
@@ -120,11 +194,14 @@ export default function GeopoliticalPage() {
     }
   }, [viewMode, globeCountries.length]);
 
-  const loadAllRisks = async () => {
+  const loadRisksForRegion = async (region: string) => {
+    const codes = REGION_COUNTRIES[region] ?? REGION_COUNTRIES["Global"];
     setIsLoading(true);
-    const risks: Record<string, CountryRisk> = {};
+    setLoadingFilter(true);
+    const risks: Record<string, CountryRisk> = { ...countryRisks };
     await Promise.all(
-      COUNTRY_CODES.map(async (code) => {
+      codes.map(async (code) => {
+        if (risks[code]?.risk_dimensions?.length) return; // already cached
         try {
           const res = await geoAPI.getCountryRisk(code);
           risks[code] = res.data;
@@ -139,6 +216,7 @@ export default function GeopoliticalPage() {
     );
     setCountryRisks(risks);
     setIsLoading(false);
+    setLoadingFilter(false);
   };
 
   const loadGlobeData = async () => {
@@ -241,12 +319,12 @@ export default function GeopoliticalPage() {
 
           {/* Region filter */}
           {viewMode === "2d" && (
-            <div className="flex gap-2">
-              {["Global", "Asia", "Europe", "Americas"].map((f) => (
+            <div className="flex gap-2 flex-wrap">
+              {Object.keys(REGION_COUNTRIES).map((f) => (
                 <button
                   key={f}
                   onClick={() => setActiveFilter(f)}
-                  className={`px-4 py-1.5 rounded-full text-xs font-semibold border ${
+                  className={`px-4 py-1.5 rounded-full text-xs font-semibold border transition-all ${
                     f === activeFilter
                       ? "bg-accent-indigo text-white border-accent-indigo shadow-xs"
                       : "bg-surface text-text-secondary border-border-base hover:border-border-strong tracking-wide shadow-xs"
@@ -273,55 +351,80 @@ export default function GeopoliticalPage() {
               transition={{ duration: 0.25 }}
               className={`flex-1 transition-all duration-300 ${selectedCountry ? "mr-[420px]" : ""} h-full`}
             >
-              {isLoading ? (
-                <div className="grid grid-cols-5 grid-rows-3 gap-3 h-[600px]">
-                  {COUNTRY_CODES.map((code) => (
-                    <div
-                      key={code}
-                      className={`${GRID_SIZES[code]} rounded-xl animate-pulse bg-elevated border border-border-light`}
-                    />
-                  ))}
-                </div>
-              ) : (
-                <div className="grid grid-cols-5 grid-rows-3 gap-3 h-[600px]">
-                  {COUNTRY_CODES.map((code) => {
-                    const risk = countryRisks[code];
-                    const score = risk?.overall_score ?? 5;
-                    const colors = scoreColor(score);
-                    const level = riskLabel(score);
-                    const isSelected = selectedCountry === code;
-                    return (
+              {/* Scrollable heatmap container */}
+              <div className="overflow-y-auto pr-1" style={{ maxHeight: "calc(100vh - 220px)" }}>
+                {isLoading ? (
+                  <div className="grid grid-cols-5 auto-rows-[120px] gap-2.5">
+                    {currentCodes.map((code) => (
                       <div
                         key={code}
-                        onClick={() => handleSelectCountry(code)}
-                        className={`${GRID_SIZES[code]} rounded-xl p-6 flex flex-col cursor-pointer transition-all shadow-xs relative group overflow-hidden border-2 ${
-                          isSelected ? "scale-[1.02] shadow-md" : "hover:scale-[1.01] hover:shadow-md"
-                        }`}
-                        style={{
-                          backgroundColor: colors.bg,
-                          borderColor: isSelected ? colors.border : colors.border,
-                          boxShadow: isSelected ? `0 0 0 3px ${colors.border}40, 0 8px 24px rgba(0,0,0,0.12)` : undefined,
-                        }}
-                      >
-                        {level === "critical" && (
-                          <div className="absolute top-4 right-4 w-3 h-3 rounded-full bg-accent-rose animate-pulse shadow-[0_0_10px_rgba(190,18,60,0.5)]" />
-                        )}
-                        <span className="text-4xl opacity-[0.85] mb-2 block drop-shadow-sm">
-                          {COUNTRY_FLAGS[code] || "🌐"}
-                        </span>
-                        <div className="flex justify-between items-end mt-auto w-full">
-                          <span className="font-sans font-bold text-xl drop-shadow-sm" style={{ color: colors.border }}>
-                            {risk?.country_name || code}
-                          </span>
-                          <span className="font-mono text-3xl font-black tracking-tighter" style={{ color: colors.border }}>
-                            {score.toFixed(1)}
-                          </span>
+                        className={`${currentGridSizes[code] ?? "col-span-1"} rounded-xl animate-pulse bg-elevated border border-border-light`}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-5 auto-rows-[120px] gap-2.5">
+                    {currentCodes.map((code) => {
+                      const risk = countryRisks[code];
+                      const score = risk?.overall_score ?? 5;
+                      const colors = scoreColor(score);
+                      const level = riskLabel(score);
+                      const isSelected = selectedCountry === code;
+                      const gridSize = currentGridSizes[code] ?? "col-span-1";
+                      return (
+                        <div
+                          key={code}
+                          onClick={() => handleSelectCountry(code)}
+                          className={`${gridSize} rounded-xl p-4 flex flex-col cursor-pointer transition-all relative overflow-hidden border-2 ${
+                            isSelected ? "scale-[1.015] shadow-lg" : "hover:scale-[1.01] hover:shadow-md"
+                          }`}
+                          style={{
+                            backgroundColor: colors.bg,
+                            borderColor: colors.border,
+                            boxShadow: isSelected
+                              ? `0 0 0 3px ${colors.border}40, 0 8px 24px rgba(0,0,0,0.1)`
+                              : undefined,
+                          }}
+                        >
+                          {/* Pulsing dot for critical risk */}
+                          {level === "critical" && (
+                            <div className="absolute top-3 right-3 w-2.5 h-2.5 rounded-full bg-accent-rose animate-pulse shadow-[0_0_8px_rgba(190,18,60,0.6)]" />
+                          )}
+
+                          {/* Country code badge */}
+                          <div className="flex items-center gap-1.5 mb-auto">
+                            <span className="text-xl leading-none">{COUNTRY_FLAGS[code] || "🌐"}</span>
+                            <span className="font-mono text-xs font-bold opacity-50" style={{ color: colors.border }}>
+                              {code}
+                            </span>
+                          </div>
+
+                          {/* Bottom row: name + score */}
+                          <div className="flex justify-between items-end w-full mt-1">
+                            <div className="min-w-0 flex-1 pr-2">
+                              <span
+                                className="font-sans font-bold leading-tight block truncate"
+                                style={{ color: colors.border, fontSize: "clamp(0.7rem, 1.5vw, 0.95rem)" }}
+                              >
+                                {risk?.country_name || code}
+                              </span>
+                              <span className="block text-[9px] font-mono opacity-50 truncate" style={{ color: colors.border }}>
+                                {risk?.overall_level?.toUpperCase() ?? "LOADING…"}
+                              </span>
+                            </div>
+                            <span
+                              className="font-mono font-black tracking-tighter flex-shrink-0"
+                              style={{ color: colors.border, fontSize: "clamp(1.1rem, 2vw, 1.6rem)" }}
+                            >
+                              {score.toFixed(1)}
+                            </span>
+                          </div>
                         </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             </motion.div>
           )}
         </AnimatePresence>

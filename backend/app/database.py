@@ -1,25 +1,32 @@
 """
-Database setup — SQLite for development (swap to PostgreSQL later).
+Database setup — Appwrite Configuration.
 """
 
-from sqlalchemy import create_engine
+from appwrite.client import Client
+from appwrite.services.databases import Databases
+from appwrite.services.users import Users
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
 
 from app.config import settings
 
-# For SQLite, need connect_args for threading
-connect_args = {"check_same_thread": False} if "sqlite" in settings.DATABASE_URL else {}
-
-engine = create_engine(settings.DATABASE_URL, connect_args=connect_args)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
+def get_appwrite_client():
+    client = Client()
+    client.set_endpoint(settings.APPWRITE_ENDPOINT)
+    client.set_project(settings.APPWRITE_PROJECT_ID)
+    if settings.APPWRITE_API_KEY:
+        client.set_key(settings.APPWRITE_API_KEY)
+    return client
 
 def get_db():
-    """Dependency that provides a database session per request."""
-    db = SessionLocal()
+    client = get_appwrite_client()
+    db = Databases(client)
     try:
         yield db
     finally:
-        db.close()
+        pass
+
+def get_users_service():
+    client = get_appwrite_client()
+    return Users(client)

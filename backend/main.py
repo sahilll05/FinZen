@@ -9,7 +9,6 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.database import engine, Base
 from app.routers import (
     portfolio,
     geo_risk,
@@ -24,8 +23,7 @@ from app.routers import (
     market,
 )
 
-# Create database tables on startup
-Base.metadata.create_all(bind=engine)
+# Appwrite doesn't use SQLAlchemy Base or metadata creation
 
 app = FastAPI(
     title="FinSight AI",

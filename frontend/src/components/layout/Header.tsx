@@ -3,20 +3,9 @@
 import { usePathname } from 'next/navigation';
 import { Search, Bell } from 'lucide-react';
 import { useState, useEffect } from 'react';
-import { useWebSocket } from '@/hooks/useWebSocket';
-import { StatusDot } from '@/components/shared/StatusDot';
-import { format } from 'date-fns';
 
 export function Header() {
   const pathname = usePathname();
-  const { status } = useWebSocket();
-  const [time, setTime] = useState<Date | null>(null);
-
-  useEffect(() => {
-    setTime(new Date());
-    const timer = setInterval(() => setTime(new Date()), 1000);
-    return () => clearInterval(timer);
-  }, []);
 
   const titleMap: Record<string, string> = {
     '/dashboard': 'Overview',
@@ -48,29 +37,29 @@ export function Header() {
 
       <div className="flex items-center gap-6">
         <div className="relative group hidden md:block">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-secondary group-focus-within:text-accent-indigo transition-colors" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-secondary group-focus-within:text-text-primary transition-colors" />
           <input 
             type="text" 
-            placeholder="Search symbols, news, commands..."
-            className="w-64 h-9 bg-elevated border border-transparent rounded-full pl-9 pr-4 text-sm focus:outline-none focus:ring-1 focus:ring-accent-indigo focus:border-accent-indigo-light focus:bg-surface transition-all placeholder:text-text-dim"
+            placeholder="Search FinZen..."
+            className="w-80 h-10 bg-surface border border-border-light rounded-lg pl-9 pr-16 text-sm focus:outline-none focus:border-border-strong focus:bg-surface transition-all placeholder:text-text-dim"
           />
+          <div className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-text-dim pointer-events-none">
+            Ctrl+K
+          </div>
         </div>
 
-        <div className="flex items-center gap-4 border-l border-border-light pl-6">
-          <div className="flex items-center gap-3">
-            <span className="font-mono text-sm text-text-primary">
-              {time ? format(time, 'HH:mm:ss') : '--:--:--'}
-            </span>
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-accent-sage-light text-accent-sage border border-accent-sage/20 font-mono font-semibold">
-              MKT OPEN
-            </span>
-            <StatusDot status={status} />
-          </div>
-
-          <button className="relative p-2 text-text-secondary hover:text-text-primary transition-colors hover:bg-elevated rounded-full">
+        <div className="flex items-center gap-5 border-l border-border-light pl-6">
+          <button className="relative p-2 text-text-secondary hover:text-text-primary transition-colors rounded-full">
             <Bell className="w-5 h-5" />
-            <span className="absolute top-2 right-2 w-2 h-2 bg-accent-amber rounded-full border border-surface shadow-xs" />
           </button>
+          
+          <div className="w-8 h-8 rounded-full overflow-hidden cursor-pointer hover:ring-2 hover:ring-border-strong transition-all bg-elevated">
+            <img 
+              src="https://api.dicebear.com/7.x/pixel-art/svg?seed=FinZen" 
+              alt="User" 
+              className="w-full h-full object-cover"
+            />
+          </div>
         </div>
       </div>
     </header>

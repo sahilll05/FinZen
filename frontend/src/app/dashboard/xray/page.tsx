@@ -6,7 +6,7 @@ import { portfolioAPI } from '@/lib/api';
 import { portfolioService } from '@/services/portfolioService';
 import { useAuthStore } from '@/store/authStore';
 import { motion } from 'framer-motion';
-import { RefreshCw, AlertTriangle, TrendingUp, Globe2, Layers, ChevronDown } from 'lucide-react';
+import { RefreshCw, AlertTriangle, TrendingUp, Globe2, Layers, ChevronDown, Activity, DollarSign, PieChart } from 'lucide-react';
 
 interface XRayData {
   concentration_risk: {
@@ -14,8 +14,12 @@ interface XRayData {
     top_holding: string;
     herfindahl_index: number;
   };
-  supply_chain_risk: Record<string, number>;
-  revenue_geography: Record<string, number>;
+  quantitative_metrics: {
+    portfolio_beta: number;
+    trailing_pe: number;
+    dividend_yield_pct: number;
+  };
+  geographic_distribution: Record<string, number>;
   country_exposure: Array<{ name: string; exposure_pct: number; risk_level: string }>;
   sector_exposure: Array<{ name: string; exposure_pct: number; risk_level: string }>;
   hidden_risks: string[];
@@ -92,7 +96,7 @@ export default function XRayPage() {
         return;
       }
 
-      // Send to backend direct endpoint (no Python DB ID needed)
+      // Send to backend direct endpoint
       const xrayRes = await portfolioAPI.xrayDirect(rawHoldings.map(h => ({
         ticker: h.ticker,
         quantity: h.quantity,
@@ -134,7 +138,7 @@ export default function XRayPage() {
         <div>
           <h1 className="font-display text-4xl text-text-primary mb-2">Portfolio X-Ray</h1>
           <p className="font-sans text-sm text-text-secondary">
-            Decompose hidden risk factors, supply chains, revenue geography, and macro sensitivities.
+            Decompose fundamental quantitative factors, geographic domicile execution, & macro sensitivities.
           </p>
         </div>
         <div className="flex items-center gap-4 flex-wrap">
@@ -206,12 +210,12 @@ export default function XRayPage() {
           <p className="text-lg font-semibold text-text-primary mb-2">Analysis Unavailable</p>
           <p className="text-sm text-text-secondary max-w-md">{error}</p>
         </div>
-      ) : xrayData ? (
+      ) : xrayData && xrayData.quantitative_metrics ? (
         <div className="space-y-8">
           {/* Top stats row */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <SoftCard className="p-5 text-center">
-              <span className="text-[10px] font-bold uppercase tracking-widest text-text-secondary block mb-2">Holdings</span>
+              <span className="text-[10px] font-bold uppercase tracking-widest text-text-secondary block mb-2">Holdings Weighting</span>
               <span className="font-mono text-3xl font-bold text-text-primary">{holdings.length}</span>
             </SoftCard>
             <SoftCard className="p-5 text-center">
@@ -239,26 +243,26 @@ export default function XRayPage() {
                 <Layers className="w-5 h-5 text-accent-indigo" />
                 <h3 className="font-display text-2xl font-semibold text-text-primary">Deep Factor Decomposition</h3>
               </div>
-              <p className="text-text-secondary text-sm mb-6 font-sans border-b border-border-light pb-4">Quantitative risk breakdown across all dimensions of your portfolio.</p>
+              <p className="text-text-secondary text-sm mb-6 font-sans border-b border-border-light pb-4">Quantitative risk breakdown and market sensitivities.</p>
 
               <div className="space-y-5 relative z-10">
-                {/* Concentration Risk */}
-                <div className="bg-root p-4 rounded-xl border border-border-light shadow-inner">
-                  <div className="flex justify-between items-center text-sm font-bold mb-3">
-                    <span>Top Holding Concentration</span>
-                    <span className="font-mono text-accent-rose">{xrayData.concentration_risk.top_holding_pct?.toFixed(0)}%</span>
+                {/* Real Quantitative Insights */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div className="bg-root border border-border-light rounded-xl p-4 text-center">
+                    <Activity className="w-5 h-5 text-accent-rose mx-auto mb-2" />
+                    <span className="text-[10px] uppercase font-bold text-text-dim">Volatility (Beta)</span>
+                    <p className="font-mono font-black text-xl text-text-primary mt-1">{xrayData.quantitative_metrics.portfolio_beta > 0 ? xrayData.quantitative_metrics.portfolio_beta.toFixed(2) : "N/A"}</p>
                   </div>
-                  <div className="w-full h-2 bg-elevated rounded-full overflow-hidden shadow-inner">
-                    <motion.div
-                      initial={{ width: 0 }}
-                      animate={{ width: `${Math.min(xrayData.concentration_risk.top_holding_pct || 0, 100)}%` }}
-                      transition={{ duration: 1 }}
-                      className="h-full rounded-full bg-accent-rose"
-                    />
+                  <div className="bg-root border border-border-light rounded-xl p-4 text-center">
+                    <PieChart className="w-5 h-5 text-accent-indigo mx-auto mb-2" />
+                    <span className="text-[10px] uppercase font-bold text-text-dim">Valuation (P/E)</span>
+                    <p className="font-mono font-black text-xl text-text-primary mt-1">{xrayData.quantitative_metrics.trailing_pe > 0 ? xrayData.quantitative_metrics.trailing_pe.toFixed(1) : "N/A"}</p>
                   </div>
-                  {xrayData.concentration_risk.top_holding && (
-                    <p className="text-xs text-text-secondary mt-2">Largest position: <span className="font-mono font-bold text-text-primary">{xrayData.concentration_risk.top_holding}</span></p>
-                  )}
+                  <div className="bg-root border border-border-light rounded-xl p-4 text-center">
+                    <DollarSign className="w-5 h-5 text-accent-teal mx-auto mb-2" />
+                    <span className="text-[10px] uppercase font-bold text-text-dim">Dividend Yield</span>
+                    <p className="font-mono font-black text-xl text-text-primary mt-1">{xrayData.quantitative_metrics.dividend_yield_pct > 0 ? `${xrayData.quantitative_metrics.dividend_yield_pct.toFixed(2)}%` : "N/A"}</p>
+                  </div>
                 </div>
 
                 {/* Sector Exposure Bars */}
@@ -295,7 +299,7 @@ export default function XRayPage() {
                 {/* Hidden Risks */}
                 {xrayData.hidden_risks.length > 0 && (
                   <div className="bg-accent-amber-light/30 border border-accent-amber/20 rounded-xl p-4">
-                    <h4 className="text-xs font-semibold uppercase tracking-widest text-accent-amber mb-3">⚠️ Hidden Risks Found</h4>
+                    <h4 className="text-xs font-semibold uppercase tracking-widest text-accent-amber mb-3">⚠️ Computed Hidden Risks</h4>
                     <ul className="space-y-2 text-sm text-text-body">
                       {xrayData.hidden_risks.map((r, i) => (
                         <li key={i} className="flex items-start gap-2">
@@ -321,52 +325,34 @@ export default function XRayPage() {
               <SoftCard className="flex flex-col bg-surface shadow-lg border-border-strong p-8 relative overflow-hidden">
                 <div className="flex items-center gap-3 mb-2">
                   <Globe2 className="w-5 h-5 text-accent-teal" />
-                  <h3 className="font-display text-2xl font-semibold text-text-primary">Look-Through Exposure</h3>
+                  <h3 className="font-display text-2xl font-semibold text-text-primary">Geographic Domicile Selection</h3>
                 </div>
                 <p className="text-sm font-sans text-text-secondary mb-6 border-b border-border-light pb-4 leading-relaxed">
-                  Revenue geography parsed beyond corporate domicile — where your companies actually earn money.
+                  Real distribution of asset domicile nations. Unlocks geopolitical risk assessments.
                 </p>
                 <div className="space-y-3 flex-1 overflow-y-auto max-h-72">
-                  {Object.entries(xrayData.revenue_geography).length > 0 ? (
-                    Object.entries(xrayData.revenue_geography)
+                  {Object.entries(xrayData.geographic_distribution || {}).length > 0 ? (
+                    Object.entries(xrayData.geographic_distribution)
                       .sort(([, a], [, b]) => (b as number) - (a as number))
                       .map(([region, pct]) => {
-                        const isHighRisk = typeof pct === 'number' && (pct as number) > 25 && ['CN', 'China', 'RU'].includes(region);
                         return (
-                          <div key={region} className={`p-4 rounded-xl border flex items-center justify-between transition-all ${isHighRisk ? 'border-accent-rose/30 bg-accent-rose-light/10' : 'border-border-light bg-root'}`}>
-                            {isHighRisk && <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-accent-rose rounded-l-xl" />}
+                          <div key={region} className={`p-4 rounded-xl border border-border-light bg-root flex items-center justify-between transition-all`}>
                             <div className="flex items-center gap-3">
                               <span className="text-2xl">{REGION_FLAGS[region] || '🌐'}</span>
                               <div>
                                 <span className="font-bold text-text-primary text-sm block">{region}</span>
-                                {isHighRisk && <span className="text-[10px] text-accent-rose font-bold uppercase">Elevated Risk</span>}
                               </div>
                             </div>
-                            <span className={`font-mono font-black text-2xl px-3 py-1 rounded-lg border ${isHighRisk ? 'text-accent-rose border-accent-rose/30' : 'text-text-primary border-border-strong'}`}>
-                              {typeof pct === 'number' ? `${(pct as number).toFixed(0)}%` : pct}
+                            <span className={`font-mono font-black text-2xl px-3 py-1 rounded-lg border text-text-primary border-border-strong`}>
+                              {typeof pct === 'number' ? `${(pct as number).toFixed(1)}%` : pct}
                             </span>
                           </div>
                         );
                       })
-                  ) : xrayData.supply_chain_risk && Object.keys(xrayData.supply_chain_risk).length > 0 ? (
-                    <div className="bg-root p-5 rounded-xl border border-border-light">
-                      <h4 className="font-bold text-text-primary mb-3 text-sm">Supply Chain Exposure</h4>
-                      {Object.entries(xrayData.supply_chain_risk)
-                        .sort(([, a], [, b]) => (b as number) - (a as number))
-                        .map(([country, pct]) => (
-                          <div key={country} className="flex justify-between items-center py-2 border-b border-border-light/50 last:border-0">
-                            <span className="text-sm font-semibold text-text-primary flex items-center gap-2">
-                              {REGION_FLAGS[country] || '🌐'} {country}
-                            </span>
-                            <span className="font-mono text-sm text-text-secondary">{(pct as number).toFixed(1)}%</span>
-                          </div>
-                        ))
-                      }
-                    </div>
                   ) : (
                     <div className="text-center py-8 text-text-secondary text-sm">
                       <Globe2 className="w-8 h-8 mx-auto mb-2 opacity-30" />
-                      No geographic data — tickers not in known database
+                      No geographic data parsed.
                     </div>
                   )}
                 </div>
@@ -376,7 +362,7 @@ export default function XRayPage() {
               {xrayData.recommendations.length > 0 && (
                 <SoftCard className="p-6 bg-accent-indigo-light/10 border-accent-indigo/20 relative overflow-hidden">
                   <div className="absolute left-0 top-0 bottom-0 w-1 bg-accent-indigo" />
-                  <h3 className="font-semibold text-text-primary ml-3 mb-3">💡 Recommendations</h3>
+                  <h3 className="font-semibold text-text-primary ml-3 mb-3">💡 Actionable Intelligence</h3>
                   <ul className="space-y-2 ml-3">
                     {xrayData.recommendations.map((r, i) => (
                       <li key={i} className="flex items-start gap-2 text-sm text-text-secondary">
@@ -398,3 +384,4 @@ export default function XRayPage() {
     </div>
   );
 }
+
