@@ -19,6 +19,11 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   login: async (email, password) => {
     try {
+      try {
+        await account.deleteSession('current');
+      } catch (e) {
+        // ignore if there is no session to delete
+      }
       await account.createEmailPasswordSession(email, password);
       const appwriteUser = await account.get();
       
@@ -40,6 +45,11 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   register: async (data) => {
     try {
+      try {
+        await account.deleteSession('current');
+      } catch (e) {
+        // ignore if there is no session to delete
+      }
       await account.create(ID.unique(), data.email, data.password, data.full_name);
       await account.createEmailPasswordSession(data.email, data.password);
       

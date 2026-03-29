@@ -67,7 +67,7 @@ export const marketAPI = {
 
 // ── News Intelligence ────────────────────────────────────────────────────────
 export const newsAPI = {
-  getFeed: (params?: { country?: string; trust_min?: number; limit?: number }) =>
+  getFeed: (params?: { country?: string; trust_min?: number; limit?: number; query?: string }) =>
     api.get('/news/feed', { params }),
   getArticle: (id: string) => api.get(`/news/article/${id}`),
   getSentiment: (ticker: string) => api.get(`/news/sentiment/${ticker}`),

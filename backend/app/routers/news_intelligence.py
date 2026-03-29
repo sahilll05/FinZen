@@ -9,12 +9,12 @@ router = APIRouter()
 
 
 @router.get("/feed")
-def get_news_feed(country: str = "US", trust_min: float = 0, limit: int = 10):
+def get_news_feed(country: str = "US", trust_min: float = 0, limit: int = 12, query: str = ""):
     """
-    Get trust-scored news feed for a country.
+    Get trust-scored news feed for a country, with optional keyword search.
     Filters by minimum trust score.
     """
-    articles = fetch_news_for_country(country.upper(), limit=limit)
+    articles = fetch_news_for_country(country.upper(), query=query, limit=limit)
 
     # Filter by trust minimum
     if trust_min > 0:
