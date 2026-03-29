@@ -5,17 +5,17 @@ Predicts risk scores (0-10) for each of 6 risk dimensions.
 Uses trained model if available, falls back to rule-based scoring.
 """
 
-import os
+from pathlib import Path
 import numpy as np
 import joblib
 
-MODEL_PATH = "trained_models/geo_risk_model.joblib"
+MODEL_PATH = Path(__file__).resolve().parents[2] / "trained_models" / "geo_risk_model.joblib"
 _model = None
 
 
 def load_model():
     global _model
-    if os.path.exists(MODEL_PATH):
+    if MODEL_PATH.exists():
         _model = joblib.load(MODEL_PATH)
         print("✅ Geo Risk XGBoost model loaded")
         return True

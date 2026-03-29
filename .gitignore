@@ -5,3 +5,5 @@ __pycache__/
 *.pyc
 backend/trained_models/
 .env
+backend/venv/
+backend/data/*.jsonl

@@ -8,6 +8,7 @@ import { AnimatedNumber } from '@/components/shared/AnimatedNumber';
 import Link from 'next/link';
 import { portfolioService } from '@/services/portfolioService';
 import { useAuthStore } from '@/store/authStore';
+import { marketAPI } from '@/lib/api';
 
 interface Portfolio {
   $id?: string;
@@ -29,6 +30,9 @@ export default function PortfoliosPage() {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newName, setNewName] = useState('');
   const [newCurrency, setNewCurrency] = useState('USD');
+  const [newTicker, setNewTicker] = useState('');
+  const [newQty, setNewQty] = useState('');
+  const [newAvgCost, setNewAvgCost] = useState('');
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState('');
 
@@ -43,7 +47,62 @@ export default function PortfoliosPage() {
     setIsLoading(true);
     try {
       const res = await portfolioService.listPortfolios(user.id);
-      setPortfolios(res.data as any[]);
+      const basePortfolios = res.data as any[];
+
+      const enriched = await Promise.all(
+        basePortfolios.map(async (p) => {
+          try {
+            const portfolioId = p.$id as string | undefined;
+            if (!portfolioId) return p;
+
+            const hRes = await portfolioService.getHoldings(portfolioId);
+            const holdings = (hRes.data as any[]) || [];
+
+            const invested = holdings.reduce((sum, h) => {
+              const qty = Number(h.quantity ?? 0);
+              const avgCost = Number(h.avg_cost ?? 0);
+              if (!Number.isFinite(qty) || !Number.isFinite(avgCost)) return sum;
+              return sum + qty * avgCost;
+            }, 0);
+
+            let currentValue = invested;
+            if (holdings.length > 0) {
+              try {
+                const tickers = Array.from(new Set(holdings.map(h => String(h.ticker || '').toUpperCase()).filter(Boolean)));
+                const qRes = await marketAPI.batchQuotes(tickers);
+                const quotes = qRes?.data || {};
+
+                currentValue = holdings.reduce((sum, h) => {
+                  const qty = Number(h.quantity ?? 0);
+                  const avgCost = Number(h.avg_cost ?? 0);
+                  const q = quotes[h.ticker] || quotes[String(h.ticker || '').toUpperCase()] || {};
+                  const hasLivePrice = typeof q.price === 'number' && Number.isFinite(q.price);
+                  const price = hasLivePrice ? q.price : avgCost;
+                  return sum + (Number.isFinite(qty) ? qty * price : 0);
+                }, 0);
+              } catch {
+                currentValue = invested;
+              }
+            }
+
+            const gainLoss = currentValue - invested;
+            const gainLossPct = invested > 0 ? (gainLoss / invested) * 100 : 0;
+
+            return {
+              ...p,
+              total_invested: invested,
+              current_value: currentValue,
+              total_gain_loss: gainLoss,
+              total_gain_loss_pct: gainLossPct,
+              holdings_count: holdings.length,
+            };
+          } catch {
+            return p;
+          }
+        })
+      );
+
+      setPortfolios(enriched);
     } catch {
       setPortfolios([]);
     } finally {
@@ -57,16 +116,51 @@ export default function PortfoliosPage() {
     const trimmedName = newName.trim();
     if (!trimmedName) return;
 
+    const trimmedTicker = newTicker.trim().toUpperCase();
+    const hasInitialHoldingInput = Boolean(trimmedTicker || newQty.trim() || newAvgCost.trim());
+    if (hasInitialHoldingInput) {
+      const qty = Number(newQty);
+      const avgCost = Number(newAvgCost);
+      if (!trimmedTicker || !Number.isFinite(qty) || !Number.isFinite(avgCost) || qty <= 0 || avgCost <= 0) {
+        setError('For initial stock, enter valid ticker, quantity, and buy price greater than 0.');
+        return;
+      }
+    }
+
     setIsCreating(true);
     setError('');
     try {
-      await portfolioService.createPortfolio(user.id, trimmedName, newCurrency);
+      const created = await portfolioService.createPortfolio(user.id, trimmedName, newCurrency);
+      const portfolioId = (created?.data as any)?.$id as string | undefined;
+
+      if (portfolioId && hasInitialHoldingInput) {
+        const qty = Number(newQty);
+        const avgCost = Number(newAvgCost);
+
+        await portfolioService.addHolding(user.id, portfolioId, {
+          ticker: trimmedTicker,
+          quantity: qty,
+          avg_cost: avgCost,
+        });
+
+        await portfolioService.addTransaction(user.id, portfolioId, {
+          ticker: trimmedTicker,
+          action: 'buy',
+          quantity: qty,
+          price: avgCost,
+          date: new Date().toISOString(),
+        });
+      }
+
       await loadPortfolios();
       setNewName('');
       setNewCurrency('USD');
+      setNewTicker('');
+      setNewQty('');
+      setNewAvgCost('');
       setShowCreateForm(false);
     } catch {
-      setError('Failed to create portfolio in Appwrite.');
+      setError('Failed to create portfolio. Please try again.');
     } finally {
       setIsCreating(false);
     }
@@ -83,7 +177,26 @@ export default function PortfoliosPage() {
   };
 
   const getReturn = (p: Portfolio) => {
-    if (p.total_gain_loss_pct !== undefined) return p.total_gain_loss_pct;
+    if (typeof p.total_gain_loss_pct === 'number' && Number.isFinite(p.total_gain_loss_pct)) {
+      return p.total_gain_loss_pct;
+    }
+    const invested = Number(p.total_invested ?? 0);
+    const current = Number(p.current_value ?? invested);
+    if (invested > 0 && Number.isFinite(current)) {
+      return ((current - invested) / invested) * 100;
+    }
+    return 0;
+  };
+
+  const getGainLoss = (p: Portfolio) => {
+    if (typeof p.total_gain_loss === 'number' && Number.isFinite(p.total_gain_loss)) {
+      return p.total_gain_loss;
+    }
+    const invested = Number(p.total_invested ?? 0);
+    const current = Number(p.current_value ?? invested);
+    if (Number.isFinite(invested) && Number.isFinite(current)) {
+      return current - invested;
+    }
     return 0;
   };
 
@@ -107,9 +220,9 @@ export default function PortfoliosPage() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.2 }}
           onSubmit={handleCreatePortfolio}
-          className="bg-surface border border-border-light rounded-2xl p-4 md:p-5 flex flex-col md:flex-row gap-3 md:items-end"
+          className="bg-surface border border-border-light rounded-2xl p-4 md:p-5 grid grid-cols-1 md:grid-cols-6 gap-3 md:items-end"
         >
-          <div className="flex-1">
+          <div className="md:col-span-2">
             <label htmlFor="portfolio-name" className="block text-xs font-semibold uppercase tracking-wider text-text-secondary mb-2">
               Portfolio Name
             </label>
@@ -123,7 +236,7 @@ export default function PortfoliosPage() {
             />
           </div>
 
-          <div className="w-full md:w-32">
+          <div className="w-full md:col-span-1">
             <label htmlFor="portfolio-currency" className="block text-xs font-semibold uppercase tracking-wider text-text-secondary mb-2">
               Currency
             </label>
@@ -140,11 +253,56 @@ export default function PortfoliosPage() {
             </select>
           </div>
 
+          <div className="w-full md:col-span-1">
+            <label htmlFor="portfolio-first-ticker" className="block text-xs font-semibold uppercase tracking-wider text-text-secondary mb-2">
+              First Stock (Optional)
+            </label>
+            <input
+              id="portfolio-first-ticker"
+              value={newTicker}
+              onChange={(e) => setNewTicker(e.target.value.toUpperCase())}
+              placeholder="e.g. TCS.NS"
+              className="w-full h-10 px-3 rounded-lg border border-border-light bg-elevated text-text-primary outline-none focus:ring-2 focus:ring-accent-indigo"
+            />
+          </div>
+
+          <div className="w-full md:col-span-1">
+            <label htmlFor="portfolio-first-qty" className="block text-xs font-semibold uppercase tracking-wider text-text-secondary mb-2">
+              Qty
+            </label>
+            <input
+              id="portfolio-first-qty"
+              type="number"
+              min="0"
+              step="any"
+              value={newQty}
+              onChange={(e) => setNewQty(e.target.value)}
+              placeholder="10"
+              className="w-full h-10 px-3 rounded-lg border border-border-light bg-elevated text-text-primary outline-none focus:ring-2 focus:ring-accent-indigo"
+            />
+          </div>
+
+          <div className="w-full md:col-span-1">
+            <label htmlFor="portfolio-first-price" className="block text-xs font-semibold uppercase tracking-wider text-text-secondary mb-2">
+              Buy Price
+            </label>
+            <input
+              id="portfolio-first-price"
+              type="number"
+              min="0"
+              step="any"
+              value={newAvgCost}
+              onChange={(e) => setNewAvgCost(e.target.value)}
+              placeholder="100"
+              className="w-full h-10 px-3 rounded-lg border border-border-light bg-elevated text-text-primary outline-none focus:ring-2 focus:ring-accent-indigo"
+            />
+          </div>
+
           {error && (
-            <p className="text-accent-rose text-xs w-full">{error}</p>
+            <p className="text-accent-rose text-xs md:col-span-6">{error}</p>
           )}
 
-          <div className="flex gap-2 w-full md:w-auto">
+          <div className="flex gap-2 w-full md:w-auto md:col-span-6">
             <Button
               type="submit"
               className="bg-accent-indigo text-white hover:bg-accent-indigo-mid w-full md:w-auto"
@@ -156,7 +314,15 @@ export default function PortfoliosPage() {
               type="button"
               variant="ghost"
               className="w-full md:w-auto"
-              onClick={() => { setShowCreateForm(false); setNewName(''); setError(''); }}
+              onClick={() => {
+                setShowCreateForm(false);
+                setNewName('');
+                setNewCurrency('USD');
+                setNewTicker('');
+                setNewQty('');
+                setNewAvgCost('');
+                setError('');
+              }}
             >
               Cancel
             </Button>
@@ -182,6 +348,7 @@ export default function PortfoliosPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pt-4">
           {portfolios.map((p, i) => {
             const ret = getReturn(p);
+            const gainLoss = getGainLoss(p);
             const color = COLOR_CYCLE[i % COLOR_CYCLE.length];
             return (
               <motion.div
@@ -218,6 +385,9 @@ export default function PortfoliosPage() {
                       <span className="text-xs text-text-secondary mb-1">Return</span>
                       <span className={`font-mono font-bold ${ret >= 0 ? 'text-accent-sage' : 'text-accent-rose'}`}>
                         {ret >= 0 ? '+' : ''}{ret.toFixed(2)}%
+                      </span>
+                      <span className={`text-[11px] font-mono ${gainLoss >= 0 ? 'text-accent-sage' : 'text-accent-rose'}`}>
+                        {gainLoss >= 0 ? '+$' : '-$'}{Math.abs(gainLoss).toFixed(2)}
                       </span>
                     </div>
                     <div className="w-px h-8 bg-border-light" />

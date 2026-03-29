@@ -3,17 +3,17 @@ Dynamic Risk Profiling Model — Random Forest classifier.
 Classifies investor risk tolerance into categories.
 """
 
-import os
+from pathlib import Path
 import numpy as np
 import joblib
 
-MODEL_PATH = "trained_models/risk_profiling_model.joblib"
+MODEL_PATH = Path(__file__).resolve().parents[2] / "trained_models" / "risk_profiling_model.joblib"
 _model = None
 
 
 def load_model():
     global _model
-    if os.path.exists(MODEL_PATH):
+    if MODEL_PATH.exists():
         _model = joblib.load(MODEL_PATH)
         print("✅ Risk Profiling Random Forest model loaded")
         return True

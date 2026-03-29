@@ -3,11 +3,11 @@ Trust Scoring Model — XGBoost classifier.
 Scores news source reliability (0-100).
 """
 
-import os
+from pathlib import Path
 import numpy as np
 import joblib
 
-MODEL_PATH = "trained_models/trust_scoring_model.joblib"
+MODEL_PATH = Path(__file__).resolve().parents[2] / "trained_models" / "trust_scoring_model.joblib"
 _model = None
 
 
@@ -24,7 +24,7 @@ SOURCE_BASELINE = {
 
 def load_model():
     global _model
-    if os.path.exists(MODEL_PATH):
+    if MODEL_PATH.exists():
         _model = joblib.load(MODEL_PATH)
         print("✅ Trust Scoring XGBoost model loaded")
         return True

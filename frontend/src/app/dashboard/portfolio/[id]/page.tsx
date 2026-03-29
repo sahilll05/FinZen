@@ -36,6 +36,17 @@ export default function PortfolioDetailPage({ params }: { params: { id: string }
     }
   }, [params.id, user]);
 
+  useEffect(() => {
+    if (!user) return;
+
+    const intervalId = setInterval(() => {
+      // Keep portfolio metrics/returns fresh with near real-time quote updates.
+      loadData(true);
+    }, 15000);
+
+    return () => clearInterval(intervalId);
+  }, [params.id, user]);
+
   const loadData = async (refresh = false) => {
     if (!user) return;
     if (refresh) setIsRefreshing(true);
@@ -51,6 +62,38 @@ export default function PortfolioDetailPage({ params }: { params: { id: string }
       let rawHoldings = hRes.data;
       const txs = tRes.data;
 
+      // Fill missing holding metadata (sector/country/company) from backend fundamentals
+      // so Intelligence/X-Ray do not show generic "Unknown" when ticker data exists.
+      if (rawHoldings.length > 0) {
+        rawHoldings = await Promise.all(rawHoldings.map(async (h) => {
+          const hasSector = h.sector && h.sector !== 'Unknown';
+          const hasCountry = h.country && h.country !== 'Unknown';
+          const hasCompany = h.company_name && String(h.company_name).trim().length > 0;
+
+          if (hasSector && hasCountry && hasCompany) {
+            return h;
+          }
+
+          try {
+            const fundamentals = await marketAPI.getFundamentals(h.ticker);
+            const info = fundamentals?.data || {};
+            return {
+              ...h,
+              company_name: hasCompany ? h.company_name : (info.name || h.ticker),
+              sector: hasSector ? h.sector : (info.sector || 'Unclassified'),
+              country: hasCountry ? h.country : (info.country || 'US'),
+            };
+          } catch {
+            return {
+              ...h,
+              company_name: hasCompany ? h.company_name : h.ticker,
+              sector: hasSector ? h.sector : 'Unclassified',
+              country: hasCountry ? h.country : 'US',
+            };
+          }
+        }));
+      }
+
       // 2. Fetch Live Market Data from Python Backend
       if (rawHoldings.length > 0) {
         const tickers = rawHoldings.map(h => h.ticker);
@@ -64,7 +107,8 @@ export default function PortfolioDetailPage({ params }: { params: { id: string }
           
           rawHoldings = rawHoldings.map(h => {
              const quote = quotes[h.ticker] || {};
-             const currentPrice = quote.price || h.avg_cost;
+             const hasLivePrice = typeof quote.price === 'number' && Number.isFinite(quote.price);
+             const currentPrice = hasLivePrice ? quote.price : h.avg_cost;
              const marketValue = currentPrice * h.quantity;
              const costBasis = h.avg_cost * h.quantity;
              const gainLoss = marketValue - costBasis;
@@ -83,7 +127,10 @@ export default function PortfolioDetailPage({ params }: { params: { id: string }
                 gain_loss: gainLoss,
                 gain_loss_pct: gainLossPct,
                 day_change: dayChange,
-                day_change_pct: dayChangePct
+                 day_change_pct: dayChangePct,
+                 quote_source: quote.source || 'unavailable',
+                 quote_error: quote.error || null,
+                 resolved_ticker: quote.resolved_ticker || h.ticker,
              };
           });
 
@@ -220,7 +267,7 @@ export default function PortfolioDetailPage({ params }: { params: { id: string }
         {/* Dynamic Content area */}
         <div className="min-h-[600px]">
           {activeTab === 'Overview' && <OverviewTab portfolio={portfolio} holdings={holdings} />}
-          {activeTab === 'Analytics' && <AnalyticsTab portfolio={portfolio} />}
+          {activeTab === 'Analytics' && <AnalyticsTab portfolio={portfolio} holdings={holdings} />}
           {activeTab === 'Allocation' && <AllocationTab holdings={holdings} />}
           {activeTab === 'Holdings' && <HoldingsTab portfolio={portfolio} holdings={holdings} onAddHolding={handleAddHolding} onRemoveHolding={handleRemoveHolding} />}
 

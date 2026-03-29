@@ -97,7 +97,7 @@ export default function XRayPage() {
         ticker: h.ticker,
         quantity: h.quantity,
         avg_cost: h.avg_cost,
-        sector: h.sector || 'Unknown',
+        sector: (h.sector && h.sector !== 'Unknown') ? h.sector : 'Unclassified',
         country: h.country || 'US',
         company_name: h.company_name || h.ticker,
         portfolio_id: portfolioId,

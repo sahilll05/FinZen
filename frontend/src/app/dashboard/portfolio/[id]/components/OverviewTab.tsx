@@ -8,7 +8,7 @@ import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianG
 export function OverviewTab({ portfolio, holdings }: { portfolio: any, holdings: any[] }) {
   const [timeframe, setTimeframe] = useState('1M');
 
-  // Build growth chart anchored to real invested → current values (no random)
+  // Build growth chart anchored to real invested -> current values (no random)
   const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const today = new Date();
   const N = 30;
@@ -22,10 +22,10 @@ export function OverviewTab({ portfolio, holdings }: { portfolio: any, holdings:
     return { name: `Day ${i + 1}`, value: Math.max(0, smoothed + noise) };
   });
 
-
   const value = portfolio.current_value || portfolio.total_invested || 0;
   const returnAbs = portfolio.total_gain_loss || 0;
   const returnPct = portfolio.total_gain_loss_pct || 0;
+  const primaryHolding = holdings.length === 1 ? holdings[0] : null;
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
@@ -56,6 +56,20 @@ export function OverviewTab({ portfolio, holdings }: { portfolio: any, holdings:
           </div>
         </SoftCard>
       </div>
+
+      {primaryHolding && (
+        <SoftCard className="p-4 bg-surface border border-border-light">
+          <div className="flex flex-wrap items-center gap-4 text-sm">
+            <span className="font-mono font-bold text-text-primary">{primaryHolding.resolved_ticker || primaryHolding.ticker}</span>
+            <span className="text-text-secondary">Live Price: <strong className="text-text-primary">${Number(primaryHolding.current_price || primaryHolding.avg_cost).toFixed(2)}</strong></span>
+            <span className="text-text-secondary">Buy Price: <strong className="text-text-primary">${Number(primaryHolding.avg_cost || 0).toFixed(2)}</strong></span>
+            <span className="text-text-secondary">Source: <strong className="text-text-primary">{primaryHolding.quote_source || 'unavailable'}</strong></span>
+            {primaryHolding.quote_error && (
+              <span className="text-accent-rose">Quote: {primaryHolding.quote_error}</span>
+            )}
+          </div>
+        </SoftCard>
+      )}
 
       <SoftCard className="p-6 bg-surface shadow-md border-border-strong">
         <div className="flex justify-between items-center mb-6 border-b border-border-light pb-4">

@@ -5,7 +5,7 @@ import { SoftCard } from '@/components/shared/SoftCard';
 import { AreaChart } from '@/components/charts/AreaChart';
 import { AnimatedNumber } from '@/components/shared/AnimatedNumber';
 import { motion } from 'framer-motion';
-import { riskAPI, geoAPI } from '@/lib/api';
+import { riskAPI, geoAPI, marketAPI } from '@/lib/api';
 import { portfolioService } from '@/services/portfolioService';
 import { useAuthStore } from '@/store/authStore';
 import { ChevronDown, Info } from 'lucide-react';
@@ -87,7 +87,37 @@ export default function RiskProfilePage() {
     setIsLoadingPortfolio(true);
     try {
       const res = await portfolioService.getHoldings(portfolioId);
-      setPortfolioHoldings(res.data as any[]);
+      const raw = (res.data as any[]) || [];
+
+      // Enrich holdings so sector/country-driven risk adjustments are portfolio-specific.
+      const enriched = await Promise.all(
+        raw.map(async (h) => {
+          const sector = String(h.sector || '').trim();
+          const country = String(h.country || '').trim();
+          const needsEnrichment = !sector || sector === 'Unknown' || sector === 'Unclassified' || !country || country === 'Unknown';
+
+          if (!needsEnrichment) return h;
+
+          try {
+            const f = await marketAPI.getFundamentals(h.ticker);
+            const info = f?.data || {};
+            return {
+              ...h,
+              sector: info.sector || sector || 'Unclassified',
+              country: info.country || country || 'US',
+              company_name: h.company_name || info.name || h.ticker,
+            };
+          } catch {
+            return {
+              ...h,
+              sector: sector || 'Unclassified',
+              country: country || 'US',
+            };
+          }
+        })
+      );
+
+      setPortfolioHoldings(enriched);
     } catch {
       setPortfolioHoldings([]);
     } finally {
@@ -176,18 +206,29 @@ export default function RiskProfilePage() {
       'Utilities': { factor: 'Interest Rate Sensitivity', multiplier: 1.2 },
     };
 
-    const factorBoosts: Record<string, number> = {};
+    // Weighted adjustments: portfolios with different composition should produce different scores.
+    const totalValue = portfolioHoldings.reduce((sum, h) => {
+      const qty = Number(h.quantity || 0);
+      const px = Number(h.current_price || h.avg_cost || 0);
+      return sum + qty * px;
+    }, 0);
+
+    const factorAdjustments: Record<string, number> = {};
     portfolioHoldings.forEach(h => {
-      const sector = h.sector || '';
+      const sector = String(h.sector || '');
+      const holdingValue = Number(h.quantity || 0) * Number(h.current_price || h.avg_cost || 0);
+      const weight = totalValue > 0 ? holdingValue / totalValue : 1 / Math.max(portfolioHoldings.length, 1);
+
       for (const [key, { factor, multiplier }] of Object.entries(sectorRiskMap)) {
         if (sector.toLowerCase().includes(key.toLowerCase())) {
-          factorBoosts[factor] = Math.max(factorBoosts[factor] || 0, multiplier);
+          const add = (multiplier - 1) * weight;
+          factorAdjustments[factor] = (factorAdjustments[factor] || 0) + add;
         }
       }
     });
 
     return riskFactors.map(f => {
-      const boost = factorBoosts[f.label] ?? 1.0;
+      const boost = 1 + (factorAdjustments[f.label] || 0);
       const adjusted = Math.round(Math.min(f.val * boost, 100));
       return {
         ...f,

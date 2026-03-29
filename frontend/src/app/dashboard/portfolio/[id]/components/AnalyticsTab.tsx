@@ -6,10 +6,11 @@ import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianG
 
 interface AnalyticsTabProps {
   portfolio: any;
-  holdings: any[];
+  holdings?: any[];
 }
 
 export function AnalyticsTab({ portfolio, holdings }: AnalyticsTabProps) {
+  const safeHoldings = holdings || [];
   const totalInvested = portfolio.total_invested || 0;
   const currentValue = portfolio.current_value || totalInvested;
   const absoluteReturn = currentValue - totalInvested;
@@ -30,7 +31,7 @@ export function AnalyticsTab({ portfolio, holdings }: AnalyticsTabProps) {
     // Smooth s-curve interpolation from invested to current
     const smoothed = totalInvested + (currentValue - totalInvested) * (progress * progress * (3 - 2 * progress));
     // Add mild noise to look realistic (controlled by position count)
-    const noise = (holdings || []).length > 0 ? (Math.sin(i * 2.5 + holdings.length) * totalInvested * 0.03) : 0;
+    const noise = safeHoldings.length > 0 ? (Math.sin(i * 2.5 + safeHoldings.length) * totalInvested * 0.03) : 0;
     const monthIndex = (today.getMonth() + i - numMonths + 1 + 12) % 12;
     return {
       month: months[monthIndex],
@@ -47,7 +48,7 @@ export function AnalyticsTab({ portfolio, holdings }: AnalyticsTabProps) {
   });
 
   const maxDrawdown = Math.min(...drawdownData.map(d => d.drawdown));
-  const volatilityEst = (holdings || []).length > 0 ? Math.abs(absoluteReturnPct * 0.8) + 5 : 0;
+  const volatilityEst = safeHoldings.length > 0 ? Math.abs(absoluteReturnPct * 0.8) + 5 : 0;
   const sharpeRatio = volatilityEst > 0 ? ((annualizedReturn - 3.5) / volatilityEst) : 0; // risk-free ~3.5%
 
   const hasData = totalInvested > 0;
@@ -164,7 +165,7 @@ export function AnalyticsTab({ portfolio, holdings }: AnalyticsTabProps) {
           </div>
 
           {/* Per-holding breakdown */}
-          {holdings.length > 0 && (
+          {safeHoldings.length > 0 && (
             <SoftCard className="p-6 bg-surface">
               <h3 className="font-sans text-lg font-bold text-text-primary mb-4">Position P&L Breakdown</h3>
               <div className="overflow-x-auto">
@@ -180,7 +181,7 @@ export function AnalyticsTab({ portfolio, holdings }: AnalyticsTabProps) {
                     </tr>
                   </thead>
                   <tbody>
-                    {holdings.map((h, i) => {
+                    {safeHoldings.map((h, i) => {
                       const invested = h.quantity * h.avg_cost;
                       const weight = totalInvested > 0 ? ((invested / totalInvested) * 100) : 0;
                       return (

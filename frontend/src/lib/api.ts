@@ -51,6 +51,8 @@ export const portfolioAPI = {
   xray: (id: string) => api.get(`/portfolio/${id}/xray`),
   // Direct endpoints — accept raw Appwrite holdings (no Python DB needed)
   xrayDirect: (holdings: any[]) => api.post('/xray/analyze/holdings', { holdings }),
+  intelligenceDirect: (holdings: any[], client_context?: Record<string, any>) =>
+    api.post('/xray/intelligence/holdings', { holdings, client_context }),
 };
 
 // ── Market Data ──────────────────────────────────────────────────────────────

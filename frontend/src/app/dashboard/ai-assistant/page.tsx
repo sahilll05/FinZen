@@ -5,6 +5,7 @@ import { SoftCard } from '@/components/shared/SoftCard';
 import { Button } from '@/components/ui/button';
 import { motion } from 'framer-motion';
 import { aiAPI, portfolioAPI } from '@/lib/api';
+import { Mic, MicOff } from 'lucide-react';
 
 interface Message {
   role: 'user' | 'ai';
@@ -26,7 +27,95 @@ export default function AIAssistantPage() {
   const [portfolios, setPortfolios] = useState<Portfolio[]>([]);
   const [selectedPortfolioId, setSelectedPortfolioId] = useState<string | undefined>(undefined);
   const [includePortfolio, setIncludePortfolio] = useState(true);
+  const [speechSupported, setSpeechSupported] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [speechError, setSpeechError] = useState('');
+  const recognitionRef = useRef<any>(null);
+  const inputRef = useRef('');
+  const speechBaseRef = useRef('');
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    inputRef.current = input;
+  }, [input]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const SpeechRecognition =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      setSpeechSupported(false);
+      return;
+    }
+
+    setSpeechSupported(true);
+    const recognition = new SpeechRecognition();
+    recognition.lang = (navigator.language || 'en-US');
+    recognition.continuous = true;
+    recognition.interimResults = true;
+
+    recognition.onresult = (event: any) => {
+      let finalText = '';
+      let interimText = '';
+
+      for (let i = 0; i < event.results.length; i += 1) {
+        const chunk = event.results[i][0]?.transcript || '';
+        if (event.results[i].isFinal) finalText += chunk;
+        else interimText += chunk;
+      }
+
+      const combined = `${speechBaseRef.current}${finalText}${interimText}`.trim();
+      setInput(combined);
+    };
+
+    recognition.onerror = (event: any) => {
+      const err = event?.error || 'speech_error';
+      if (err !== 'aborted' && err !== 'no-speech') {
+        setSpeechError(`Speech recognition error: ${err}`);
+      }
+      setIsRecording(false);
+    };
+
+    recognition.onend = () => {
+      setIsRecording(false);
+    };
+
+    recognitionRef.current = recognition;
+
+    return () => {
+      try {
+        recognition.stop();
+      } catch {
+        // no-op on cleanup
+      }
+    };
+  }, []);
+
+  const toggleSpeechToText = () => {
+    if (!speechSupported || !recognitionRef.current) {
+      setSpeechError('Speech-to-text is not supported in this browser.');
+      return;
+    }
+
+    setSpeechError('');
+    if (isRecording) {
+      recognitionRef.current.stop();
+      setIsRecording(false);
+      return;
+    }
+
+    try {
+      const prefix = inputRef.current.trim();
+      speechBaseRef.current = prefix ? `${prefix} ` : '';
+      recognitionRef.current.start();
+      setIsRecording(true);
+    } catch {
+      setSpeechError('Could not start speech recognition. Please try again.');
+      setIsRecording(false);
+    }
+  };
 
   useEffect(() => {
     portfolioAPI.list()
@@ -208,6 +297,14 @@ export default function AIAssistantPage() {
               className="w-full bg-transparent resize-none h-14 p-4 focus:outline-none text-text-body font-sans placeholder-text-dim text-base leading-relaxed"
             />
             <Button
+              onClick={toggleSpeechToText}
+              type="button"
+              title={isRecording ? 'Stop recording' : 'Start speech to text'}
+              className={`m-2 rounded-xl h-10 w-10 p-0 shadow-sm shrink-0 border ${isRecording ? 'bg-accent-rose text-white border-accent-rose' : 'bg-elevated text-text-primary border-border-base hover:bg-root'}`}
+            >
+              {isRecording ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+            </Button>
+            <Button
               onClick={handleSend}
               disabled={isLoading || !input.trim()}
               className="m-2 rounded-xl h-10 w-10 p-0 shadow-sm shrink-0 bg-accent-indigo disabled:opacity-50"
@@ -225,6 +322,12 @@ export default function AIAssistantPage() {
               />
               Include Portfolio Context
             </label>
+            {isRecording && (
+              <span className="text-xs font-semibold text-accent-rose">Listening...</span>
+            )}
+            {speechError && (
+              <span className="text-xs text-accent-rose">{speechError}</span>
+            )}
           </div>
         </div>
       </div>
