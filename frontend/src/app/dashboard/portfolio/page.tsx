@@ -75,7 +75,11 @@ export default function PortfoliosPage() {
                 currentValue = holdings.reduce((sum, h) => {
                   const qty = Number(h.quantity ?? 0);
                   const avgCost = Number(h.avg_cost ?? 0);
-                  const q = quotes[h.ticker] || quotes[String(h.ticker || '').toUpperCase()] || {};
+                  const tickerKey = String(h.ticker || '').trim().toUpperCase();
+                  const q =
+                    quotes[tickerKey] ||
+                    quotes[String(h.ticker || '')] ||
+                    {};
                   const hasLivePrice = typeof q.price === 'number' && Number.isFinite(q.price);
                   const price = hasLivePrice ? q.price : avgCost;
                   return sum + (Number.isFinite(qty) ? qty * price : 0);
@@ -121,8 +125,13 @@ export default function PortfoliosPage() {
     if (hasInitialHoldingInput) {
       const qty = Number(newQty);
       const avgCost = Number(newAvgCost);
-      if (!trimmedTicker || !Number.isFinite(qty) || !Number.isFinite(avgCost) || qty <= 0 || avgCost <= 0) {
-        setError('For initial stock, enter valid ticker, quantity, and buy price greater than 0.');
+      const tickerOk = /^[A-Z0-9.-]{1,20}$/.test(trimmedTicker);
+      if (!tickerOk) {
+        setError('Use stock ticker format only (e.g. RELIANCE.NS, TCS.NS, AAPL), max 20 chars, no spaces.');
+        return;
+      }
+      if (!Number.isFinite(qty) || !Number.isFinite(avgCost) || qty <= 0 || avgCost <= 0) {
+        setError('For initial stock, enter valid quantity and buy price greater than 0.');
         return;
       }
     }
@@ -261,7 +270,7 @@ export default function PortfoliosPage() {
               id="portfolio-first-ticker"
               value={newTicker}
               onChange={(e) => setNewTicker(e.target.value.toUpperCase())}
-              placeholder="e.g. TCS.NS"
+              placeholder="e.g. RELIANCE.NS"
               className="w-full h-10 px-3 rounded-lg border border-border-light bg-elevated text-text-primary outline-none focus:ring-2 focus:ring-accent-indigo"
             />
           </div>

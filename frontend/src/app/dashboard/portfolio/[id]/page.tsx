@@ -96,17 +96,27 @@ export default function PortfolioDetailPage({ params }: { params: { id: string }
 
       // 2. Fetch Live Market Data from Python Backend
       if (rawHoldings.length > 0) {
-        const tickers = rawHoldings.map(h => h.ticker);
+        const tickers = Array.from(
+          new Set(
+            rawHoldings
+              .map(h => String(h.ticker || '').trim().toUpperCase())
+              .filter(Boolean)
+          )
+        );
         try {
           const mRes = await marketAPI.batchQuotes(tickers);
-          const quotes = mRes.data;
+          const quotes = mRes.data || {};
 
           // 3. Augment Holdings
           let totalValue = 0;
           let totalCost = 0;
           
           rawHoldings = rawHoldings.map(h => {
-             const quote = quotes[h.ticker] || {};
+             const tickerKey = String(h.ticker || '').trim().toUpperCase();
+             const quote =
+               quotes[tickerKey] ||
+               quotes[String(h.ticker || '')] ||
+               {};
              const hasLivePrice = typeof quote.price === 'number' && Number.isFinite(quote.price);
              const currentPrice = hasLivePrice ? quote.price : h.avg_cost;
              const marketValue = currentPrice * h.quantity;

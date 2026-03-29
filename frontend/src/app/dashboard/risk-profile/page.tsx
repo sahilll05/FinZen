@@ -94,7 +94,9 @@ export default function RiskProfilePage() {
         raw.map(async (h) => {
           const sector = String(h.sector || '').trim();
           const country = String(h.country || '').trim();
-          const needsEnrichment = !sector || sector === 'Unknown' || sector === 'Unclassified' || !country || country === 'Unknown';
+          const genericSector = ['unknown', 'unclassified', 'uncategorized', 'equity', 'n/a'].includes(sector.toLowerCase());
+          const genericCountry = !country || country.toLowerCase() === 'unknown' || country.toLowerCase() === 'n/a';
+          const needsEnrichment = !sector || genericSector || genericCountry;
 
           if (!needsEnrichment) return h;
 
@@ -197,11 +199,17 @@ export default function RiskProfilePage() {
     // Sector → macro factor mapping
     const sectorRiskMap: Record<string, { factor: string; multiplier: number }> = {
       'Technology': { factor: 'Market Volatility', multiplier: 1.3 },
+      'Communication': { factor: 'Market Volatility', multiplier: 1.2 },
       'Finance': { factor: 'Credit Spreads', multiplier: 1.2 },
+      'Financial Services': { factor: 'Credit Spreads', multiplier: 1.2 },
       'Banking': { factor: 'Credit Spreads', multiplier: 1.2 },
       'Energy': { factor: 'Geopolitical Tension', multiplier: 1.25 },
       'Healthcare': { factor: 'Market Volatility', multiplier: 0.8 },
       'Consumer': { factor: 'Liquidity Constraint', multiplier: 0.9 },
+      'Consumer Defensive': { factor: 'Liquidity Constraint', multiplier: 0.85 },
+      'Consumer Cyclical': { factor: 'Liquidity Constraint', multiplier: 1.1 },
+      'Industrials': { factor: 'Geopolitical Tension', multiplier: 1.1 },
+      'Materials': { factor: 'Geopolitical Tension', multiplier: 1.15 },
       'Real Estate': { factor: 'Interest Rate Sensitivity', multiplier: 1.4 },
       'Utilities': { factor: 'Interest Rate Sensitivity', multiplier: 1.2 },
     };
