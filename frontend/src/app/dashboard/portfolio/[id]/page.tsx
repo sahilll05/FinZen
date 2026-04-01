@@ -26,7 +26,6 @@ export default function PortfolioDetailPage({ params }: { params: { id: string }
   
   const [portfolio, setPortfolio] = useState<any>(null);
   const [holdings, setHoldings] = useState<any[]>([]);
-  const [transactions, setTransactions] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -54,13 +53,28 @@ export default function PortfolioDetailPage({ params }: { params: { id: string }
     
     try {
       // 1. Fetch DB Data from Appwrite
-      const pRes = await portfolioService.getPortfolio(params.id);
-      const hRes = await portfolioService.getHoldings(params.id);
-      const tRes = await portfolioService.getTransactions(params.id);
+      let p: any = null;
+      let rawHoldings: any[] = [];
 
-      let p = pRes.data;
-      let rawHoldings = hRes.data;
-      const txs = tRes.data;
+      try {
+        const pRes = await portfolioService.getPortfolio(params.id);
+        p = pRes.data;
+      } catch (err) {
+        console.error("Portfolio fetch failed:", err);
+      }
+
+      try {
+        const hRes = await portfolioService.getHoldings(params.id);
+        rawHoldings = hRes.data || [];
+      } catch (err) {
+        console.error("Holdings fetch failed:", err);
+      }
+
+      if (!p) {
+          setIsLoading(false);
+          setIsRefreshing(false);
+          return;
+      }
 
       // Fill missing holding metadata (sector/country/company) from backend fundamentals
       // so Intelligence/X-Ray do not show generic "Unknown" when ticker data exists.
@@ -137,10 +151,10 @@ export default function PortfolioDetailPage({ params }: { params: { id: string }
                 gain_loss: gainLoss,
                 gain_loss_pct: gainLossPct,
                 day_change: dayChange,
-                 day_change_pct: dayChangePct,
-                 quote_source: quote.source || 'unavailable',
-                 quote_error: quote.error || null,
-                 resolved_ticker: quote.resolved_ticker || h.ticker,
+                  day_change_pct: dayChangePct,
+                  quote_source: quote.source || 'unavailable',
+                  quote_error: quote.error || null,
+                  resolved_ticker: quote.resolved_ticker || h.ticker,
              };
           });
 
@@ -160,11 +174,9 @@ export default function PortfolioDetailPage({ params }: { params: { id: string }
 
       setPortfolio(p);
       setHoldings(rawHoldings);
-      setTransactions(txs);
       
     } catch (e) {
-      console.error(e);
-      // alert("Failed to load portfolio");
+      console.error("Critical Page Load Error:", e);
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
@@ -176,15 +188,7 @@ export default function PortfolioDetailPage({ params }: { params: { id: string }
     try {
       // 1. Add Holding to DB
       await portfolioService.addHolding(user.id, params.id, payload);
-      // 2. Automatically record as a BUY transaction in Appwrite
-      await portfolioService.addTransaction(user.id, params.id, {
-        ticker: payload.ticker,
-        action: 'buy',
-        quantity: payload.quantity,
-        price: payload.avg_cost,
-        date: new Date().toISOString()
-      });
-      // 3. Reload Page
+      // 2. Reload Page
       await loadData(true);
     } catch {
       alert("Failed to add holding.");
@@ -193,17 +197,6 @@ export default function PortfolioDetailPage({ params }: { params: { id: string }
 
   const handleRemoveHolding = async (holdingId: string) => {
     try {
-      const h = holdings.find(x => x.$id === holdingId);
-      if (h) {
-         // Log a sell transaction
-         await portfolioService.addTransaction(user?.id || '', params.id, {
-          ticker: h.ticker,
-          action: 'sell',
-          quantity: h.quantity,
-          price: h.current_price || h.avg_cost,
-          date: new Date().toISOString()
-         });
-      }
       // Delete holding from Appwrite DB
       await portfolioService.deleteHolding(holdingId);
       await loadData(true);

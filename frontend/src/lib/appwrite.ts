@@ -13,6 +13,6 @@ export const databases = new Databases(client);
 export const DB_ID = 'finzen';
 export const COL_PORTFOLIOS = 'portfolios';
 export const COL_HOLDINGS = 'holdings';
-export const COL_TRANSACTIONS = 'transactions';
+export const COL_TRANSACTIONS = 'transactions'; // Deprecated, remove later when sure
 
 export { ID, Query };

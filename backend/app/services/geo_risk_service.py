@@ -9,8 +9,10 @@ from app.utils.sector_mapping import get_sector_impact, GEO_SECTOR_IMPACT
 from app.ml.geo_risk_model import predict_risk_scores
 import requests
 import time
+import random
 import yfinance as yf
-
+from concurrent.futures import ThreadPoolExecutor
+from app.utils.cache import get_cache_json, set_cache_json
 
 def analyze_country_risk(country_code: str) -> dict:
     """
@@ -106,8 +108,7 @@ def _map_sector_impacts(risk_scores: dict) -> list:
     ]
 
 
-# Cache for GDELT adjustments: {code: {data, timestamp}}
-_gdelt_cache: Dict[str, dict] = {}
+# Caching for GDELT adjustments using Redis
 _GDELT_TTL = 600  # 10 minutes
 
 
@@ -117,16 +118,22 @@ def _fetch_news_risk_adjustment(country_code: str) -> dict:
     Falls back to cached or minimal noise on failure.
     """
     import random
-    now = time.time()
+    
+    cache_key = f"gdelt:{country_code}"
+    cached_data = get_cache_json(cache_key)
 
-    # Return cached if fresh
-    if country_code in _gdelt_cache and (now - _gdelt_cache[country_code]["ts"]) < _GDELT_TTL:
-        return _gdelt_cache[country_code]["data"]
+    if cached_data:
+        return cached_data
+
+    # If no cache is found, default fallback
+    stale_data = None
 
     default = {
         "war_risk": 0.0, "sanctions_risk": 0.0, "regulatory_risk": 0.0,
         "economic_risk": 0.0, "political_risk": 0.0, "currency_risk": 0.0,
     }
+
+    fetch_timeout = 4 if stale_data else 6  # Faster timeout if we have a stale fallback
 
     try:
         from app.utils.country_data import get_country_info
@@ -139,9 +146,9 @@ def _fetch_news_risk_adjustment(country_code: str) -> dict:
             f"?query={country_name.replace(' ', '%20')}%20conflict%20OR%20war%20OR%20sanctions%20OR%20economy"
             f"&mode=artlist&maxrecords=20&format=json"
         )
-        resp = requests.get(gdelt_url, timeout=8)
+        resp = requests.get(gdelt_url, timeout=fetch_timeout)
         if resp.status_code != 200:
-            return default
+            return stale_data or default
 
         articles = resp.json().get("articles", [])
         if not articles:
@@ -185,11 +192,13 @@ def _fetch_news_risk_adjustment(country_code: str) -> dict:
             "currency_risk": round(econ_adj * 0.6, 2),
         }
 
-        _gdelt_cache[country_code] = {"data": adjustment, "ts": now}
+        set_cache_json(cache_key, adjustment, _GDELT_TTL)
         return adjustment
 
     except Exception as e:
         print(f"⚠️  GDELT adjustment failed for {country_code}: {e}")
+        if stale_data:
+            return stale_data
         # Small deterministic noise as fallback
         return {
             "war_risk": random.uniform(-0.2, 0.2),
@@ -220,11 +229,18 @@ def analyze_portfolio_geo_exposure(holdings: list) -> dict:
     country_exposures = {}
     high_risk_total = 0
 
-    for country, value in country_values.items():
-        pct = round((value / total_value) * 100, 1)
-        country_exposures[country] = pct
+    # Parallelize risk fetching for multiple countries
+    def _fetch_country_risk(code):
+        return code, analyze_country_risk(code)
 
-        risk = analyze_country_risk(country)
+    with ThreadPoolExecutor(max_workers=min(len(country_values), 10)) as executor:
+        results = list(executor.map(_fetch_country_risk, country_values.keys()))
+
+    for country_code, risk in results:
+        value = country_values[country_code]
+        pct = round((value / total_value) * 100, 1)
+        country_exposures[country_code] = pct
+        
         if risk["overall_score"] > 6.0:
             high_risk_total += pct
 
@@ -402,8 +418,7 @@ COUNTRY_STOCK_MAP: Dict[str, list] = {
     "GH":  [{"name": "GSE CI",     "ticker": "^GSECI"}],
 }
 
-# Stock cache: {ticker: {data, timestamp}}
-_stock_cache: Dict[str, dict] = {}
+# Caching for stocks using Redis
 _STOCK_TTL = 300  # 5 minutes
 
 
@@ -411,15 +426,17 @@ def get_country_stocks(country_code: str) -> dict:
     """Fetch real-time stock index data for a country using yf.download()."""
     tickers = COUNTRY_STOCK_MAP.get(country_code.upper(), [])
     stocks = []
-    now = time.time()
 
     for entry in tickers:
         ticker = entry["ticker"]
         name = entry["name"]
 
+        cache_key = f"stock:{ticker}"
+        cached_stock = get_cache_json(cache_key)
+        
         # Return cached data if fresh
-        if ticker in _stock_cache and (now - _stock_cache[ticker]["ts"]) < _STOCK_TTL:
-            stocks.append(_stock_cache[ticker]["data"])
+        if cached_stock:
+            stocks.append(cached_stock)
             continue
 
         stock_data = {"name": name, "ticker": ticker, "price": None, "change_pct": 0.0, "currency": "USD"}
@@ -481,7 +498,7 @@ def get_country_stocks(country_code: str) -> dict:
         except Exception as e:
             print(f"⚠️  Stock fetch error for {ticker}: {e}")
 
-        _stock_cache[ticker] = {"data": stock_data, "ts": now}
+        set_cache_json(cache_key, stock_data, _STOCK_TTL)
         stocks.append(stock_data)
 
     return {"country_code": country_code.upper(), "stocks": stocks}

@@ -27,22 +27,25 @@ Uses a pre-trained **Random Forest classification model** (with heuristic fallba
 
 ## 🏗️ Architecture & Tech Stack
 
-The project is strictly separated into a modern React frontend and a Python/FastAPI backend designed for heavy ML workloads.
+The project is architected for speed and cloud scalability, utilizing a Python/FastAPI backend for ML and an Appwrite Cloud backend for persistence.
+
+### Persistence & Data Layer
+- **Primary Database**: **Appwrite Cloud** (Unified storage for Portfolios, Holdings, and User Metadata).
+- **Caching Engine**: High-performance **In-Memory Caching** (via `cachetools`) for sub-second geopolitical risk computations.
 
 ### Frontend
-- **Framework**: Next.js, React
+- **Framework**: Next.js (React)
 - **Styling**: TailwindCSS, Framer Motion
 - **Visualizations**: Globe.gl (Three.js), Recharts
 - **State Management**: Zustand
-- **Authentication**: Appwrite (via custom `authStore`)
+- **Backend Communication**: Appwrite SDK (Direct) & FastAPI (ML Processing)
 
 ### Backend (`/backend`)
 - **API Framework**: FastAPI
 - **Machine Learning**: 
-  - `transformers` & `torch` (for FinBERT NLP)
-  - `xgboost` & `scikit-learn` (for Risk and Trust prediction)
+  - `transformers` & `torch` (FinBERT NLP)
+  - `xgboost` & `scikit-learn` (Risk and Trust prediction)
 - **Knowledge Graph**: `networkx`
-- **Generative AI**: `groq` (Llama 3.1)
 - **Data Integrations**: `yfinance` (market data), `requests` (GDELT, News)
 
 ---
@@ -52,11 +55,19 @@ The project is strictly separated into a modern React frontend and a Python/Fast
 ### Prerequisites
 - Node.js (v18+)
 - Python 3.10+
-- An [Appwrite](https://appwrite.io/) instance for database & auth
+- An [Appwrite Cloud](https://appwrite.io/) account
 - A [Groq](https://groq.com/) API Key for the AI Assistant
 
-### 1. Backend Setup
-Navigate to the backend directory and install the dependencies.
+### 1. Appwrite Configuration
+Create a database named `finzen` and the following collections:
+- `portfolios`
+- `holdings`
+- `users`
+- `news_articles`
+
+Ensure the collection permissions are set to "Any" or "All users" for Read/Write during development.
+
+### 2. Backend Setup
 ```bash
 cd backend
 python -m venv venv
@@ -64,39 +75,23 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-Create a `.env` file in the `backend` folder containing the following:
+Create a `.env` file in the `backend` folder:
 ```env
-APPWRITE_ENDPOINT=your_appwrite_endpoint
+APPWRITE_ENDPOINT=https://sgp.cloud.appwrite.io/v1
 APPWRITE_PROJECT_ID=your_project_id
-APPWRITE_API_KEY=your_api_key
+APPWRITE_DATABASE_ID=finzen
 GROQ_API_KEY=your_groq_api_key
 NEWS_API_KEY=your_news_api_key
 ```
 
-Run the backend server:
-```bash
-uvicorn main:app --reload --port 8000
-```
-
-### 2. Frontend Setup
-Open a new terminal, navigate to the frontend directory, and install the UI dependencies.
+### 3. Frontend Setup
 ```bash
 cd frontend
 npm install
-```
-
-Configure the `.env.local` file with your Appwrite details:
-```env
-NEXT_PUBLIC_APPWRITE_ENDPOINT=your_appwrite_endpoint
-NEXT_PUBLIC_APPWRITE_PROJECT_ID=your_project_id
-```
-
-Run the development server:
-```bash
 npm run dev
 ```
 
-Visit `http://localhost:3000` to interact with the dashboards.
+Visit `http://localhost:3000` to interact with the platform.
 
 ---
 

@@ -139,6 +139,8 @@ export const scenarioAPI = {
   // Direct endpoint — accepts Appwrite holdings (no Python DB portfolio_id needed)
   simulateDirect: (data: { holdings: any[]; scenarios: any[] }) =>
     api.post('/scenario/simulate/holdings', data),
+  optimizeDirect: (data: { holdings: any[]; constraints?: any }) =>
+    api.post('/scenario/optimize/direct', data),
 };
 
 // ── Knowledge Graph ──────────────────────────────────────────────────────────

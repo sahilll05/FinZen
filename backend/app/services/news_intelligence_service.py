@@ -11,16 +11,16 @@ from typing import Optional
 from app.config import settings
 from app.ml.sentiment_analyzer import analyze_sentiment
 from app.ml.trust_scoring_model import score_article
+from app.utils.cache import get_cache_json, set_cache_json
 
-# ── TTL Cache ─────────────────────────────────────────────────────────────────
+# ── Redis TTL Cache ─────────────────────────────────────────────────────────────
 # Keyed by (country_code, query, limit).  Avoids re-running FinBERT on every
 # page load while still refreshing data every 5 minutes.
-_cache: dict[str, tuple[float, list]] = {}
 _CACHE_TTL_SECONDS = 300  # 5 minutes
 
 
 def _cache_key(country_code: str, query: str, limit: int) -> str:
-    return f"{country_code}::{query}::{limit}"
+    return f"news:{country_code}::{query}::{limit}"
 
 
 def fetch_news_for_country(country_code: str, query: str = "", limit: int = 10) -> list:
@@ -29,9 +29,9 @@ def fetch_news_for_country(country_code: str, query: str = "", limit: int = 10) 
     Results are cached for 5 minutes to avoid re-running FinBERT on each request.
     """
     key = _cache_key(country_code, query, limit)
-    cached_at, cached_articles = _cache.get(key, (0, []))
+    cached_articles = get_cache_json(key)
 
-    if cached_articles and (time.time() - cached_at) < _CACHE_TTL_SECONDS:
+    if cached_articles:
         print(f"[News Cache] HIT  — {key}")
         return cached_articles
 
@@ -59,8 +59,8 @@ def fetch_news_for_country(country_code: str, query: str = "", limit: int = 10) 
     if not processed:
         processed = _mock_articles(country_code)
 
-    # Store in TTL cache
-    _cache[key] = (time.time(), processed)
+    # Store in Redis TTL cache
+    set_cache_json(key, processed, _CACHE_TTL_SECONDS)
     return processed
 
 

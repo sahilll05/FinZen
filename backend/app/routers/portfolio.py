@@ -1,241 +1,229 @@
-"""
-Portfolio Router — Full CRUD + xray + optimize + metrics.
-Aligned with frontend api.ts expectations.
-"""
-
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
-from sqlalchemy.orm import Session
+from appwrite.query import Query
 import csv
 import io
+from datetime import datetime
 
-from app.database import get_db
-from app.models.db_models import Portfolio, Holding, User
-from app.schemas.portfolio import PortfolioUpload, PortfolioSummary, HoldingCreate
+from app.database import get_db, generate_id
+from app.config import settings
 from app.services.market_data_service import get_stock_price
 from app.utils.sector_mapping import get_stock_info
 
 router = APIRouter()
 
+# Collection IDs from settings
+DB_ID = settings.APPWRITE_DATABASE_ID
+PORTFOLIOS_COL = settings.APPWRITE_COLLECTION_PORTFOLIOS
+HOLDINGS_COL = settings.APPWRITE_COLLECTION_HOLDINGS
+USERS_COL = settings.APPWRITE_COLLECTION_USERS
 
-def _get_or_create_demo_user(db: Session):
-    """Get or create demo user (no auth in MVP)."""
-    user = db.query(User).first()
-    if not user:
-        user = User(email="demo@finsight.ai", country_code="US")
-        db.add(user)
-        db.commit()
-        db.refresh(user)
-    return user
-
+def _get_or_create_demo_user(db):
+    """Get or create demo user in Appwrite."""
+    try:
+        users = db.list_documents(DB_ID, USERS_COL, [Query.limit(1)])
+        if users["total"] > 0:
+            return users["documents"][0]
+        
+        # Create demo user
+        user_data = {
+            "email": "demo@finsight.ai",
+            "country_code": "US",
+            "created_at": datetime.utcnow().isoformat()
+        }
+        return db.create_document(DB_ID, USERS_COL, generate_id(), user_data)
+    except Exception as e:
+        print(f"Error in _get_or_create_demo_user: {e}")
+        # Return a mock if collection doesn't exist yet to avoid total crash
+        return {"$id": "demo_user_id"}
 
 # ── LIST all portfolios ─────────────────────────────────────────────────────
 @router.get("/")
-def list_portfolios(db: Session = Depends(get_db)):
-    """List all portfolios (frontend: portfolioAPI.list())."""
-    portfolios = db.query(Portfolio).all()
-    result = []
-    for p in portfolios:
-        holdings = db.query(Holding).filter(Holding.portfolio_id == p.id).all()
-        total_invested = sum(h.quantity * h.avg_cost for h in holdings)
-        result.append({
-            "id": str(p.id),
-            "name": p.name,
-            "currency": p.currency or "USD",
-            "total_invested": round(total_invested, 2),
-            "holdings_count": len(holdings),
-            "created_at": str(p.created_at),
-        })
-    return result
-
+def list_portfolios(db = Depends(get_db)):
+    """List all portfolios (Frontend: portfolioAPI.list())."""
+    try:
+        res = db.list_documents(DB_ID, PORTFOLIOS_COL)
+        portfolios = res["documents"]
+        
+        result = []
+        for p in portfolios:
+            # Fetch holdings for this portfolio to calculate total invested
+            h_res = db.list_documents(DB_ID, HOLDINGS_COL, [Query.equal("portfolio_id", p["$id"])])
+            holdings = h_res["documents"]
+            
+            total_invested = sum(float(h.get("quantity", 0)) * float(h.get("avg_cost", 0)) for h in holdings)
+            
+            result.append({
+                "id": p["$id"],
+                "name": p.get("name", "Unnamed"),
+                "currency": p.get("currency", "USD"),
+                "total_invested": round(total_invested, 2),
+                "holdings_count": len(holdings),
+                "created_at": p.get("created_at"),
+            })
+        return result
+    except Exception as e:
+        print(f"Appwrite Error in list_portfolios: {e}")
+        return []
 
 @router.get("/list/all")
-def list_portfolios_all(db: Session = Depends(get_db)):
-    """Alias for list (legacy route)."""
+def list_portfolios_all(db = Depends(get_db)):
     return list_portfolios(db)
-
 
 # ── CREATE portfolio ────────────────────────────────────────────────────────
 @router.post("/")
-def create_portfolio(data: dict, db: Session = Depends(get_db)):
-    """Create a new empty portfolio (frontend: portfolioAPI.create())."""
+def create_portfolio(data: dict, db = Depends(get_db)):
+    """Create a new empty portfolio."""
     user = _get_or_create_demo_user(db)
-    portfolio = Portfolio(
-        user_id=user.id,
-        name=data.get("name", "My Portfolio"),
-        currency=data.get("currency", "USD"),
-    )
-    db.add(portfolio)
-    db.commit()
-    db.refresh(portfolio)
+    payload = {
+        "user_id": user["$id"],
+        "name": data.get("name", "My Portfolio"),
+        "currency": data.get("currency", "USD"),
+        "created_at": datetime.utcnow().isoformat()
+    }
+    portfolio = db.create_document(DB_ID, PORTFOLIOS_COL, generate_id(), payload)
+    
     return {
-        "id": str(portfolio.id),
-        "name": portfolio.name,
-        "currency": portfolio.currency,
+        "id": portfolio["$id"],
+        "name": portfolio["name"],
+        "currency": portfolio["currency"],
         "holdings_count": 0,
         "total_invested": 0,
-        "created_at": str(portfolio.created_at),
+        "created_at": portfolio["created_at"],
     }
-
 
 # ── GET single portfolio ────────────────────────────────────────────────────
 @router.get("/{portfolio_id}")
-def get_portfolio(portfolio_id: str, db: Session = Depends(get_db)):
-    """Get portfolio summary (frontend: portfolioAPI.get(id))."""
+def get_portfolio(portfolio_id: str, db = Depends(get_db)):
+    """Get portfolio summary."""
     try:
-        pid = int(portfolio_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid portfolio ID")
-    portfolio = db.query(Portfolio).filter(Portfolio.id == pid).first()
-    if not portfolio:
+        # Check if portfolio exists
+        db.get_document(DB_ID, PORTFOLIOS_COL, portfolio_id)
+        return _build_portfolio_summary(portfolio_id, db)
+    except Exception:
         raise HTTPException(status_code=404, detail="Portfolio not found")
-    return _build_portfolio_summary(pid, db)
-
 
 # ── UPDATE portfolio ────────────────────────────────────────────────────────
 @router.put("/{portfolio_id}")
-def update_portfolio(portfolio_id: str, data: dict, db: Session = Depends(get_db)):
-    """Update portfolio (frontend: portfolioAPI.update(id, data))."""
+def update_portfolio(portfolio_id: str, data: dict, db = Depends(get_db)):
+    """Update portfolio metadata."""
+    payload = {}
+    if "name" in data: payload["name"] = data["name"]
+    if "currency" in data: payload["currency"] = data["currency"]
+    
     try:
-        pid = int(portfolio_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid portfolio ID")
-    portfolio = db.query(Portfolio).filter(Portfolio.id == pid).first()
-    if not portfolio:
+        portfolio = db.update_document(DB_ID, PORTFOLIOS_COL, portfolio_id, payload)
+        return {"id": portfolio["$id"], "name": portfolio["name"], "currency": portfolio["currency"]}
+    except Exception:
         raise HTTPException(status_code=404, detail="Portfolio not found")
-    if "name" in data:
-        portfolio.name = data["name"]
-    if "currency" in data:
-        portfolio.currency = data["currency"]
-    db.commit()
-    return {"id": str(portfolio.id), "name": portfolio.name, "currency": portfolio.currency}
-
 
 # ── DELETE portfolio ────────────────────────────────────────────────────────
 @router.delete("/{portfolio_id}")
-def delete_portfolio(portfolio_id: str, db: Session = Depends(get_db)):
-    """Delete portfolio and all its holdings."""
+def delete_portfolio(portfolio_id: str, db = Depends(get_db)):
+    """Delete portfolio and its holdings."""
     try:
-        pid = int(portfolio_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid portfolio ID")
-    portfolio = db.query(Portfolio).filter(Portfolio.id == pid).first()
-    if not portfolio:
-        raise HTTPException(status_code=404, detail="Portfolio not found")
-    db.query(Holding).filter(Holding.portfolio_id == pid).delete()
-    db.delete(portfolio)
-    db.commit()
-    return {"message": "Portfolio deleted"}
-
+        # Delete holdings first
+        h_res = db.list_documents(DB_ID, HOLDINGS_COL, [Query.equal("portfolio_id", portfolio_id)])
+        for h in h_res["documents"]:
+            db.delete_document(DB_ID, HOLDINGS_COL, h["$id"])
+            
+        # Delete portfolio
+        db.delete_document(DB_ID, PORTFOLIOS_COL, portfolio_id)
+        return {"message": "Portfolio deleted"}
+    except Exception:
+        raise HTTPException(status_code=404, detail="Portfolio not found or deletion failed")
 
 # ── HOLDINGS ────────────────────────────────────────────────────────────────
 @router.get("/{portfolio_id}/holdings")
-def get_holdings(portfolio_id: str, db: Session = Depends(get_db)):
+def get_holdings(portfolio_id: str, db = Depends(get_db)):
     """Get all holdings for a portfolio."""
     try:
-        pid = int(portfolio_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid portfolio ID")
-    holdings = db.query(Holding).filter(Holding.portfolio_id == pid).all()
-    result = []
-    for h in holdings:
-        price = get_stock_price(h.ticker)
-        invested = h.quantity * h.avg_cost
-        market_val = h.quantity * price if price else invested
-        result.append({
-            "id": str(h.id),
-            "ticker": h.ticker,
-            "company_name": h.company_name,
-            "country": h.country,
-            "sector": h.sector,
-            "quantity": h.quantity,
-            "avg_cost": h.avg_cost,
-            "current_price": price,
-            "market_value": round(market_val, 2),
-            "gain_loss": round(market_val - invested, 2),
-            "gain_loss_pct": round((market_val - invested) / invested * 100, 2) if invested > 0 else 0,
-        })
-    return result
-
+        h_res = db.list_documents(DB_ID, HOLDINGS_COL, [Query.equal("portfolio_id", portfolio_id)])
+        holdings = h_res["documents"]
+        
+        result = []
+        for h in holdings:
+            ticker = h.get("ticker", "")
+            price = get_stock_price(ticker)
+            quantity = float(h.get("quantity", 0))
+            avg_cost = float(h.get("avg_cost", 0))
+            
+            invested = quantity * avg_cost
+            market_val = quantity * price if price else invested
+            
+            result.append({
+                "id": h["$id"],
+                "ticker": ticker,
+                "company_name": h.get("company_name", ""),
+                "country": h.get("country", "US"),
+                "sector": h.get("sector", "Unknown"),
+                "quantity": quantity,
+                "avg_cost": avg_cost,
+                "current_price": price,
+                "market_value": round(market_val, 2),
+                "gain_loss": round(market_val - invested, 2),
+                "gain_loss_pct": round((market_val - invested) / invested * 100, 2) if invested > 0 else 0,
+            })
+        return result
+    except Exception:
+        return []
 
 @router.post("/{portfolio_id}/holdings")
-def add_holding(portfolio_id: str, data: dict, db: Session = Depends(get_db)):
+def add_holding(portfolio_id: str, data: dict, db = Depends(get_db)):
     """Add a holding to a portfolio."""
-    try:
-        pid = int(portfolio_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid portfolio ID")
-    portfolio = db.query(Portfolio).filter(Portfolio.id == pid).first()
-    if not portfolio:
-        raise HTTPException(status_code=404, detail="Portfolio not found")
     ticker = data.get("ticker", "").upper()
     stock_info = get_stock_info(ticker)
-    holding = Holding(
-        portfolio_id=pid,
-        ticker=ticker,
-        company_name=data.get("company_name") or stock_info.get("name", ticker),
-        country=data.get("country") or stock_info.get("country", "US"),
-        sector=data.get("sector") or stock_info.get("sector", "Unknown"),
-        quantity=float(data.get("quantity", 0)),
-        avg_cost=float(data.get("avg_cost", 0)),
-    )
-    db.add(holding)
-    db.commit()
-    db.refresh(holding)
-    return {"id": str(holding.id), "ticker": holding.ticker, "message": "Holding added"}
-
+    
+    payload = {
+        "portfolio_id": portfolio_id,
+        "ticker": ticker,
+        "company_name": data.get("company_name") or stock_info.get("name", ticker),
+        "country": data.get("country") or stock_info.get("country", "US"),
+        "sector": data.get("sector") or stock_info.get("sector", "Unknown"),
+        "quantity": float(data.get("quantity", 0)),
+        "avg_cost": float(data.get("avg_cost", 0)),
+    }
+    
+    try:
+        holding = db.create_document(DB_ID, HOLDINGS_COL, generate_id(), payload)
+        return {"id": holding["$id"], "ticker": holding["ticker"], "message": "Holding added"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to add holding: {e}")
 
 @router.delete("/{portfolio_id}/holdings/{holding_id}")
-def delete_holding(portfolio_id: str, holding_id: str, db: Session = Depends(get_db)):
-    """Remove a holding from a portfolio."""
+def delete_holding(portfolio_id: str, holding_id: str, db = Depends(get_db)):
+    """Remove a holding."""
     try:
-        hid = int(holding_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid holding ID")
-    holding = db.query(Holding).filter(Holding.id == hid).first()
-    if not holding:
+        db.delete_document(DB_ID, HOLDINGS_COL, holding_id)
+        return {"message": "Holding deleted"}
+    except Exception:
         raise HTTPException(status_code=404, detail="Holding not found")
-    db.delete(holding)
-    db.commit()
-    return {"message": "Holding deleted"}
 
-
-# ── METRICS ─────────────────────────────────────────────────────────────────
+# ── METRICS & X-RAY & OPTIMIZE ──────────────────────────────────────────────
 @router.get("/{portfolio_id}/metrics")
-def get_portfolio_metrics(portfolio_id: str, db: Session = Depends(get_db)):
-    """Get portfolio performance metrics."""
-    try:
-        pid = int(portfolio_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid portfolio ID")
-    return _build_portfolio_summary(pid, db)
+def get_portfolio_metrics(portfolio_id: str, db = Depends(get_db)):
+    return _build_portfolio_summary(portfolio_id, db)
 
-
-# ── OPTIMIZE ─────────────────────────────────────────────────────────────────
 @router.post("/{portfolio_id}/optimize")
-def optimize_portfolio_endpoint(portfolio_id: str, data: dict, db: Session = Depends(get_db)):
-    """Run portfolio optimization."""
-    try:
-        pid = int(portfolio_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid portfolio ID")
-    holdings = db.query(Holding).filter(Holding.portfolio_id == pid).all()
+def optimize_portfolio_endpoint(portfolio_id: str, data: dict, db = Depends(get_db)):
+    """Run optimization (Uses Appwrite data)."""
+    h_res = db.list_documents(DB_ID, HOLDINGS_COL, [Query.equal("portfolio_id", portfolio_id)])
+    holdings = h_res["documents"]
+    
     if not holdings:
-        raise HTTPException(status_code=404, detail="Portfolio not found or empty")
+        raise HTTPException(status_code=404, detail="Empty portfolio")
 
     from app.services.portfolio_optimizer_service import optimize_portfolio as run_optimizer
 
-    tickers = [h.ticker for h in holdings]
-    values = [h.quantity * h.avg_cost for h in holdings]
+    tickers = [h["ticker"] for h in holdings]
+    values = [float(h["quantity"]) * float(h["avg_cost"]) for h in holdings]
     total = sum(values)
     weights = [v / total for v in values] if total > 0 else [1 / len(values)] * len(values)
 
     expected_returns = []
     for h in holdings:
-        price = get_stock_price(h.ticker)
-        if price and h.avg_cost > 0:
-            ret = (price - h.avg_cost) / h.avg_cost
-        else:
-            ret = 0.05
+        price = get_stock_price(h["ticker"])
+        avg_cost = float(h["avg_cost"])
+        ret = (price - avg_cost) / avg_cost if price and avg_cost > 0 else 0.05
         expected_returns.append(ret)
 
     strategy = data.get("strategy", "moderate")
@@ -247,105 +235,46 @@ def optimize_portfolio_endpoint(portfolio_id: str, data: dict, db: Session = Dep
         expected_returns=expected_returns,
         constraints={"max_position_pct": max_pos},
     )
-    result["portfolio_id"] = pid
+    result["portfolio_id"] = portfolio_id
     return result
 
-
-# ── X-RAY ────────────────────────────────────────────────────────────────────
 @router.get("/{portfolio_id}/xray")
-def xray_portfolio_endpoint(portfolio_id: str, db: Session = Depends(get_db)):
-    """Deep X-Ray analysis of portfolio hidden risks."""
-    try:
-        pid = int(portfolio_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid portfolio ID")
-    holdings = db.query(Holding).filter(Holding.portfolio_id == pid).all()
+def xray_portfolio_endpoint(portfolio_id: str, db = Depends(get_db)):
+    """Appwrite-powered X-Ray."""
+    h_res = db.list_documents(DB_ID, HOLDINGS_COL, [Query.equal("portfolio_id", portfolio_id)])
+    holdings = h_res["documents"]
+    
     if not holdings:
-        raise HTTPException(status_code=404, detail="Portfolio not found or empty")
+        raise HTTPException(status_code=404, detail="Empty portfolio")
 
     from app.services.portfolio_xray_service import xray_portfolio
 
     holdings_data = []
     for h in holdings:
-        price = get_stock_price(h.ticker)
+        ticker = h["ticker"]
+        price = get_stock_price(ticker)
+        avg_cost = float(h["avg_cost"])
+        qty = float(h["quantity"])
+        
         holdings_data.append({
-            "ticker": h.ticker,
-            "company_name": h.company_name,
-            "country": h.country,
-            "sector": h.sector,
-            "quantity": h.quantity,
-            "avg_cost": h.avg_cost,
-            "current_price": price or h.avg_cost,
-            "market_value": h.quantity * (price or h.avg_cost),
-            "portfolio_id": pid,
+            "ticker": ticker,
+            "company_name": h.get("company_name", ""),
+            "country": h.get("country", "US"),
+            "sector": h.get("sector", "Unknown"),
+            "quantity": qty,
+            "avg_cost": avg_cost,
+            "current_price": price or avg_cost,
+            "market_value": qty * (price or avg_cost),
+            "portfolio_id": portfolio_id,
         })
     return xray_portfolio(holdings_data)
 
-
-# ── UPLOAD (legacy) ──────────────────────────────────────────────────────────
-@router.post("/upload")
-def upload_portfolio(portfolio_data: PortfolioUpload, db: Session = Depends(get_db)):
-    """Upload a portfolio via JSON."""
-    user = _get_or_create_demo_user(db)
-    portfolio = Portfolio(
-        user_id=user.id,
-        name=portfolio_data.name,
-        currency=portfolio_data.currency,
-    )
-    db.add(portfolio)
-    db.commit()
-    db.refresh(portfolio)
-
-    for h in portfolio_data.holdings:
-        stock_info = get_stock_info(h.ticker)
-        holding = Holding(
-            portfolio_id=portfolio.id,
-            ticker=h.ticker.upper(),
-            company_name=h.company_name or stock_info.get("name", h.ticker),
-            country=h.country or stock_info.get("country", "US"),
-            sector=h.sector or stock_info.get("sector", "Unknown"),
-            quantity=h.quantity,
-            avg_cost=h.avg_cost,
-        )
-        db.add(holding)
-    db.commit()
-    return _build_portfolio_summary(portfolio.id, db)
-
-
-@router.post("/upload-csv")
-def upload_portfolio_csv(file: UploadFile = File(...), db: Session = Depends(get_db)):
-    """Upload portfolio via CSV."""
-    content = file.file.read().decode("utf-8")
-    reader = csv.DictReader(io.StringIO(content))
-    user = _get_or_create_demo_user(db)
-    portfolio = Portfolio(user_id=user.id, name=file.filename or "CSV Upload")
-    db.add(portfolio)
-    db.commit()
-    db.refresh(portfolio)
-
-    for row in reader:
-        ticker = row.get("ticker", "").strip().upper()
-        if not ticker:
-            continue
-        stock_info = get_stock_info(ticker)
-        holding = Holding(
-            portfolio_id=portfolio.id,
-            ticker=ticker,
-            company_name=stock_info.get("name", ticker),
-            country=row.get("country", stock_info.get("country", "US")).strip(),
-            sector=row.get("sector", stock_info.get("sector", "Unknown")).strip(),
-            quantity=float(row.get("quantity", 0)),
-            avg_cost=float(row.get("avg_cost", 0)),
-        )
-        db.add(holding)
-    db.commit()
-    return _build_portfolio_summary(portfolio.id, db)
-
-
-def _build_portfolio_summary(portfolio_id: int, db: Session) -> dict:
-    """Build a full portfolio summary with current prices."""
-    portfolio = db.query(Portfolio).filter(Portfolio.id == portfolio_id).first()
-    holdings = db.query(Holding).filter(Holding.portfolio_id == portfolio_id).all()
+# ── HELPERS ──────────────────────────────────────────────────────────────────
+def _build_portfolio_summary(portfolio_id: str, db) -> dict:
+    """Consolidated summary builder for Appwrite."""
+    portfolio = db.get_document(DB_ID, PORTFOLIOS_COL, portfolio_id)
+    h_res = db.list_documents(DB_ID, HOLDINGS_COL, [Query.equal("portfolio_id", portfolio_id)])
+    holdings = h_res["documents"]
 
     total_invested = 0
     current_value = 0
@@ -354,26 +283,30 @@ def _build_portfolio_summary(portfolio_id: int, db: Session) -> dict:
     holding_responses = []
 
     for h in holdings:
-        invested = h.quantity * h.avg_cost
+        qty = float(h.get("quantity", 0))
+        avg = float(h.get("avg_cost", 0))
+        ticker = h.get("ticker", "")
+        
+        invested = qty * avg
         total_invested += invested
-        countries.add(h.country)
-        sectors.add(h.sector)
+        countries.add(h.get("country", "US"))
+        sectors.add(h.get("sector", "Unknown"))
 
-        price = get_stock_price(h.ticker)
-        market_val = h.quantity * price if price else invested
+        price = get_stock_price(ticker)
+        market_val = qty * price if price else invested
         current_value += market_val
 
         gain_loss = market_val - invested
         gain_loss_pct = (gain_loss / invested * 100) if invested > 0 else 0
 
         holding_responses.append({
-            "id": str(h.id),
-            "ticker": h.ticker,
-            "company_name": h.company_name,
-            "country": h.country,
-            "sector": h.sector,
-            "quantity": h.quantity,
-            "avg_cost": h.avg_cost,
+            "id": h["$id"],
+            "ticker": ticker,
+            "company_name": h.get("company_name", ""),
+            "country": h.get("country", "US"),
+            "sector": h.get("sector", "Unknown"),
+            "quantity": qty,
+            "avg_cost": avg,
             "current_price": price,
             "market_value": round(market_val, 2),
             "gain_loss": round(gain_loss, 2),
@@ -384,10 +317,10 @@ def _build_portfolio_summary(portfolio_id: int, db: Session) -> dict:
     total_gain_pct = (total_gain / total_invested * 100) if total_invested > 0 else 0
 
     return {
-        "portfolio_id": str(portfolio_id),
-        "id": str(portfolio_id),
-        "name": portfolio.name,
-        "currency": portfolio.currency or "USD",
+        "portfolio_id": portfolio_id,
+        "id": portfolio_id,
+        "name": portfolio.get("name"),
+        "currency": portfolio.get("currency", "USD"),
         "total_invested": round(total_invested, 2),
         "current_value": round(current_value, 2),
         "total_gain_loss": round(total_gain, 2),

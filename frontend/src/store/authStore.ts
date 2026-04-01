@@ -26,7 +26,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       }
       await account.createEmailPasswordSession(email, password);
       const appwriteUser = await account.get();
-      
+
       const user: User = {
         id: appwriteUser.$id,
         email: appwriteUser.email,
@@ -34,7 +34,7 @@ export const useAuthStore = create<AuthState>((set) => ({
         country_code: 'US', // Could be added to preferences or custom DB user table
         preferences: {},
       } as any;
-      
+
       set({ user, isAuthenticated: true, isLoading: false });
       if (typeof window !== 'undefined') window.location.href = '/dashboard';
     } catch (error: any) {
@@ -52,9 +52,9 @@ export const useAuthStore = create<AuthState>((set) => ({
       }
       await account.create(ID.unique(), data.email, data.password, data.full_name);
       await account.createEmailPasswordSession(data.email, data.password);
-      
+
       const appwriteUser = await account.get();
-      
+
       const user: User = {
         id: appwriteUser.$id,
         email: appwriteUser.email,
@@ -62,7 +62,7 @@ export const useAuthStore = create<AuthState>((set) => ({
         country_code: data.country_code,
         preferences: {},
       } as any;
-      
+
       set({ user, isAuthenticated: true, isLoading: false });
       if (typeof window !== 'undefined') window.location.href = '/dashboard';
     } catch (error: any) {

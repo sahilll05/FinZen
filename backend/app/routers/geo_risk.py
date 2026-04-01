@@ -1,35 +1,26 @@
-"""
-Geopolitical Investment Engine Router.
-Routes aligned with frontend api.ts geoAPI.
-"""
-
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from appwrite.query import Query
 
 from app.database import get_db
-from app.models.db_models import Holding
+from app.config import settings
 from app.services.geo_risk_service import analyze_country_risk, analyze_portfolio_geo_exposure, get_globe_data, get_country_stocks
 
 router = APIRouter()
 
+DB_ID = settings.APPWRITE_DATABASE_ID
+HOLDINGS_COL = settings.APPWRITE_COLLECTION_HOLDINGS
 
 # ── COUNTRY RISK ─────────────────────────────────────────────────────────────
-# Frontend: geoAPI.getCountryRisk(code) → GET /geo/risk/{code}
 @router.get("/risk/{country_code}")
 def get_country_risk(country_code: str):
     """Full geopolitical risk analysis for a country."""
     return analyze_country_risk(country_code.upper())
 
-
-# Legacy route
 @router.get("/country/{country_code}/risk-score")
 def get_country_risk_legacy(country_code: str):
-    """Full geopolitical risk analysis (legacy route)."""
     return analyze_country_risk(country_code.upper())
 
-
 # ── SECTOR IMPACTS ────────────────────────────────────────────────────────────
-# Frontend: geoAPI.getSectorImpact(code) → GET /geo/sectors/{code}
 @router.get("/sectors/{country_code}")
 def get_sector_impacts(country_code: str):
     """Get sector impact map for a country's risk profile."""
@@ -39,20 +30,15 @@ def get_sector_impacts(country_code: str):
         "sector_impacts": result["sector_impacts"],
     }
 
-
-# Legacy route
 @router.get("/country/{country_code}/sectors")
 def get_sector_impacts_legacy(country_code: str):
     return get_sector_impacts(country_code)
 
-
 # ── SECTOR STOCKS ─────────────────────────────────────────────────────────────
-# Frontend: geoAPI.getSectorStocks(code) → GET /geo/sectors/{code}/stocks
 @router.get("/sectors/{country_code}/stocks")
 def get_sector_stocks(country_code: str):
     """Get stocks affected by a country's sector risk."""
     result = analyze_country_risk(country_code.upper())
-    # Return sector impacts with example tickers from our mapping
     from app.utils.sector_mapping import STOCK_INFO
     sector_stocks: dict = {}
     for ticker, info in STOCK_INFO.items():
@@ -68,31 +54,33 @@ def get_sector_stocks(country_code: str):
         "sector_stocks": sector_stocks,
     }
 
-
 # ── PORTFOLIO EXPOSURE ────────────────────────────────────────────────────────
-# Frontend: geoAPI.getPortfolioExposure(portfolioData) → POST /geo/portfolio/exposure
 @router.post("/portfolio/exposure")
-def get_portfolio_geo_exposure(body: dict, db: Session = Depends(get_db)):
-    """Analyze portfolio's geopolitical risk exposure from portfolio_id or holdings list."""
-    # Accept either a portfolio_id integer or an array of holdings
+def get_portfolio_geo_exposure(body: dict, db = Depends(get_db)):
+    """Analyze portfolio's geopolitical risk exposure."""
     portfolio_id = body.get("portfolio_id")
     holdings_list = body.get("holdings")
 
     if portfolio_id:
-        holdings = db.query(Holding).filter(Holding.portfolio_id == int(portfolio_id)).all()
-        if not holdings:
-            raise HTTPException(status_code=404, detail="Portfolio not found or empty")
-        holdings_data = [
-            {
-                "ticker": h.ticker,
-                "country": h.country,
-                "sector": h.sector,
-                "quantity": h.quantity,
-                "avg_cost": h.avg_cost,
-                "market_value": h.quantity * h.avg_cost,
-            }
-            for h in holdings
-        ]
+        try:
+            h_res = db.list_documents(DB_ID, HOLDINGS_COL, [Query.equal("portfolio_id", str(portfolio_id))])
+            holdings = h_res["documents"]
+            if not holdings:
+                raise HTTPException(status_code=404, detail="Portfolio not found or empty")
+            
+            holdings_data = [
+                {
+                    "ticker": h.get("ticker"),
+                    "country": h.get("country", "US"),
+                    "sector": h.get("sector", "Unknown"),
+                    "quantity": float(h.get("quantity", 0)),
+                    "avg_cost": float(h.get("avg_cost", 0)),
+                    "market_value": float(h.get("quantity", 0)) * float(h.get("avg_cost", 0)),
+                }
+                for h in holdings
+            ]
+        except Exception as e:
+             raise HTTPException(status_code=500, detail=f"Appwrite error: {e}")
     elif holdings_list:
         holdings_data = holdings_list
     else:
@@ -100,17 +88,14 @@ def get_portfolio_geo_exposure(body: dict, db: Session = Depends(get_db)):
 
     exposure = analyze_portfolio_geo_exposure(holdings_data)
     if portfolio_id:
-        exposure["portfolio_id"] = portfolio_id
+        exposure["portfolio_id"] = str(portfolio_id)
     return exposure
 
-
 # ── SIMULATE ──────────────────────────────────────────────────────────────────
-# Frontend: geoAPI.simulate(portfolioData) → POST /geo/simulate
 @router.post("/simulate")
-def simulate_geo_event(body: dict, db: Session = Depends(get_db)):
+def simulate_geo_event(body: dict, db = Depends(get_db)):
     """Simulate a geopolitical event's impact on portfolio."""
     return get_portfolio_geo_exposure(body, db)
-
 
 # ── RECENT EVENTS ─────────────────────────────────────────────────────────────
 @router.get("/events/recent")
@@ -120,29 +105,24 @@ def get_recent_events(country: str = "US"):
     articles = fetch_news_for_country(country.upper(), query=f"geopolitical {country}", limit=5)
     return {"country": country.upper(), "events": articles}
 
-
 # ── GLOBE DATA ───────────────────────────────────────────────────────────────
 @router.get("/globe-data")
 def get_globe_data_endpoint():
-    """Batch endpoint: returns risk score + lat/lng for all globe countries."""
+    """Batch endpoint: returns risk score + lat/lng for all countries."""
     countries = get_globe_data()
     return {"countries": countries, "total": len(countries)}
 
-
 @router.get("/country-stocks/{country_code}")
 def get_country_stocks_endpoint(country_code: str):
-    """Real-time stock index data for a country (via yfinance, 5-min cache)."""
+    """Real-time stock index data for a country."""
     return get_country_stocks(country_code.upper())
-
 
 @router.delete("/cache/stocks")
 def clear_stock_cache():
-    """Clear the in-memory stock cache so next request fetches fresh data."""
-    from app.services.geo_risk_service import _stock_cache
-    cleared = len(_stock_cache)
-    _stock_cache.clear()
-    return {"cleared": cleared, "message": "Stock cache cleared"}
-
+    """Clear the in-memory cache."""
+    from app.utils.cache import clear_cache
+    clear_cache()
+    return {"message": "In-memory cache cleared successfully"}
 
 @router.get("/debug/yfinance")
 def debug_yfinance():

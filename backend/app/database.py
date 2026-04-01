@@ -5,11 +5,9 @@ Database setup — Appwrite Configuration.
 from appwrite.client import Client
 from appwrite.services.databases import Databases
 from appwrite.services.users import Users
-from sqlalchemy.ext.declarative import declarative_base
+from appwrite.id import ID
 
 from app.config import settings
-
-Base = declarative_base()
 
 def get_appwrite_client():
     client = Client()
@@ -20,13 +18,14 @@ def get_appwrite_client():
     return client
 
 def get_db():
+    """Dependency that provides the Appwrite Databases service."""
     client = get_appwrite_client()
-    db = Databases(client)
-    try:
-        yield db
-    finally:
-        pass
+    return Databases(client)
 
 def get_users_service():
     client = get_appwrite_client()
     return Users(client)
+
+def generate_id():
+    """Helper to generate unique IDs for Appwrite documents."""
+    return ID.unique()

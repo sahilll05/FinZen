@@ -5,5 +5,12 @@ __pycache__/
 *.pyc
 backend/trained_models/
 .env
+**/.env
 backend/venv/
 backend/data/*.jsonl
+*.log
+*.db
+err.txt
+out.log
+test_*_output.txt
+tsc_output.txt
