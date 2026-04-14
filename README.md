@@ -84,6 +84,15 @@ GROQ_API_KEY=your_groq_api_key
 NEWS_API_KEY=your_news_api_key
 ```
 
+**To run the backend server:**
+```bash
+cd backend
+venv\Scripts\activate  # On Windows (or `source venv/bin/activate` on macOS/Linux)
+uvicorn main:app --reload --port 8000
+```
+
+The backend will start at `http://localhost:8000`. Access the interactive API docs at `http://localhost:8000/docs`.
+
 ### 3. Frontend Setup
 ```bash
 cd frontend
