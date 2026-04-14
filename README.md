@@ -2,20 +2,28 @@
 
 **FinZen** is a highly advanced, next-generation financial portfolio intelligence platform. It moves beyond standard stock tracking to offer **Geopolitically-Aware Analysis**, actively scanning the globe for macro-economic risks, conflicts, and regulatory shifts, and mathematically mapping how those global events impact your specific stock portfolio.
 
+| Geopolitical Dashboard | Global Risk Map |
+|:---:|:---:|
+| ![Geopolitical Dashboard](screenshots/geopolitical_dashboard.gif) | ![Global Risk Map](screenshots/global_risk_map.gif) |
+
+| Portfolio X-Ray | Knowledge Graph |
+|:---:|:---:|
+| ![Portfolio X-Ray](screenshots/portfolio_xray.gif) | ![Knowledge Graph](screenshots/knowledge_graph.gif) |
+
+| News Intelligence Feed | |
+|:---:|:---:|
+| ![News Intelligence](screenshots/news_intelligence.gif) | |
 
 ## 🌟 Key Features
 
 ### 1. The Geopolitical Risk Engine
 A 3D interactive globe and 2D regional heatmap powered by real-time open-source global event tracking (GDELT) and an **XGBoost Classifier**. It evaluates nations across 6 macro dimensions (War, Sanctions, Regulatory, Economic, Political, Currency) and maps these risks directly to exposed sectors.
-<img width="1919" height="970" alt="Screenshot 2026-04-14 122359" src="https://github.com/user-attachments/assets/3c82bedf-0f6c-409b-bcfe-d15b905d3b8b" />
-<img width="1919" height="974" alt="Screenshot 2026-04-14 122419" src="https://github.com/user-attachments/assets/5f83ba07-b44a-4bc5-962b-180f20d0e538" />
 
 
 ### 2. Live News Intelligence & Trust Scoring
 - **Real-Time Pipeline**: Pulls live global financial news via Google News RSS fallbacks.
 - **FinBERT Sentiment Analysis**: Reads news article headlines and descriptions using an NLP model (ProsusAI/finbert) to categorize market impact as Positive, Negative, or Neutral.
 - **AI Trust Scoring**: An XGBoost model evaluates the trustworthiness of articles, filtering out hype terminology, verifying source credibility, and cross-referencing consensus.
-<img width="1919" height="970" alt="Screenshot 2026-04-14 122434" src="https://github.com/user-attachments/assets/b85fc475-edff-4fb4-b073-89869ba0126d" />
 
 ### 3. Financial Knowledge Graph
 An interactive, node-based visual mapping of the global economy and your portfolio's footprint. It connects entities such as countries, stock tickers, industries, and macro-economic factors, allowing you to visually explore direct and indirect relationships.
