@@ -1,7 +1,5 @@
 # FinZen: Geopolitical Portfolio Intelligence
 
-![FinZen Dashboard Preview](https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=2564&auto=format&fit=crop)
-
 **FinZen** is a highly advanced, next-generation financial portfolio intelligence platform. It moves beyond standard stock tracking to offer **Geopolitically-Aware Analysis**, actively scanning the globe for macro-economic risks, conflicts, and regulatory shifts, and mathematically mapping how those global events impact your specific stock portfolio.
 
 ## 🌟 Key Features
@@ -77,7 +75,7 @@ pip install -r requirements.txt
 
 Create a `.env` file in the `backend` folder:
 ```env
-APPWRITE_ENDPOINT=https://sgp.cloud.appwrite.io/v1
+APPWRITE_ENDPOINT=your_endpoint
 APPWRITE_PROJECT_ID=your_project_id
 APPWRITE_DATABASE_ID=finzen
 GROQ_API_KEY=your_groq_api_key
