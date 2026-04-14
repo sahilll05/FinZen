@@ -7,8 +7,8 @@
 
 ### 1. The Geopolitical Risk Engine
 A 3D interactive globe and 2D regional heatmap powered by real-time open-source global event tracking (GDELT) and an **XGBoost Classifier**. It evaluates nations across 6 macro dimensions (War, Sanctions, Regulatory, Economic, Political, Currency) and maps these risks directly to exposed sectors.
-<img width="1919" height="970" alt="Screenshot 2026-04-14 122359" src="https://github.com/user-attachments/assets/3c82bedf-0f6c-409b-bcfe-d15b905d3b8b" />
-<img width="1919" height="974" alt="Screenshot 2026-04-14 122419" src="https://github.com/user-attachments/assets/5f83ba07-b44a-4bc5-962b-180f20d0e538" />
+<img width="70%" alt="Screenshot 2026-04-14 122359" src="https://github.com/user-attachments/assets/3c82bedf-0f6c-409b-bcfe-d15b905d3b8b" />
+<img width="70%" alt="Screenshot 2026-04-14 122419" src="https://github.com/user-attachments/assets/5f83ba07-b44a-4bc5-962b-180f20d0e538" />
 
 
 ### 2. Live News Intelligence & Trust Scoring
