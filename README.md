@@ -4,15 +4,15 @@
 
 | Geopolitical Dashboard | Global Risk Map |
 |:---:|:---:|
-| ![Geopolitical Dashboard](https://github.com/user-attachments/assets/3c82bedf-0f6c-409b-bcfe-d15b905d3b8b) | ![Global Risk Map](https://github.com/user-attachments/assets/5f83ba07-b44a-4bc5-962b-180f20d0e538) |
+| ![Geopolitical Dashboard](screenshots/geopolitical_globe.png) | ![Global Risk Map](screenshots/geopolitical_globe2.png) |
 
 | Portfolio X-Ray | Knowledge Graph |
 |:---:|:---:|
-| ![Portfolio X-Ray](screenshots/portfolio_xray.gif) | ![Knowledge Graph](screenshots/knowledge_graph.gif) |
+| ![Portfolio X-Ray](screenshots/portfolio_xray.png) | ![Knowledge Graph](screenshots/knowledge_graph.png) |
 
 | News Intelligence Feed | |
 |:---:|:---:|
-| ![News Intelligence Feed](https://github.com/user-attachments/assets/b85fc475-edff-4fb4-b073-89869ba0126d) | |
+| ![News Intelligence Feed](screenshots/news-intelligence.png) | |
 
 ## 🌟 Key Features
 
